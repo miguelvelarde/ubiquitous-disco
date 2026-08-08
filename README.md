@@ -1,8 +1,11 @@
 # Condo Admin System
 
 **Documento de Requerimientos Funcionales y de Dominio**
+
 **Versión:** 0.1
+
 **Estado:** Borrador inicial
+
 **Fecha:** 8 de agosto de 2026
 
 ---
