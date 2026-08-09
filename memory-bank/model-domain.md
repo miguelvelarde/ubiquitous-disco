@@ -32,8 +32,7 @@ Condominium Management
 │   ├── ServiceCatalog
 │   ├── RecurringService
 │   ├── Charge
-│   ├── Payment
-│   └── PaymentAllocation
+│   └── Payment
 │
 └── Amenities
     ├── Amenity
@@ -532,83 +531,19 @@ Esto es necesario para soportar pagos anticipados.
 
 ---
 
-# 18. PaymentAllocation
+# 18. Regla de pagos
 
-Representa la aplicación de un pago a un cargo determinado.
+Un cargo no puede recibir pagos parciales.
 
-### Atributos iniciales
+Un cargo pasa de Pending a Paid únicamente cuando se liquida en su totalidad.
 
-```text
-PaymentAllocation
--------------------------
-PaymentId
-ChargeId
-Amount
-```
+Cada pago se asocia a un único cargo.
 
-La relación conceptual será:
-
-```text
-Payment
-   │
-   ├── PaymentAllocation → Charge
-   ├── PaymentAllocation → Charge
-   └── PaymentAllocation → Charge
-```
-
-Ejemplo de pago anual:
-
-```text
-Payment
-Amount = $16,500
-       │
-       ├── Enero      $1,500
-       ├── Febrero    $1,500
-       ├── Marzo      $1,500
-       ├── ...
-       └── Noviembre  $1,500
-```
-
-Diciembre no necesita una asignación porque su cargo fue condonado.
+Para pagos anticipados (ej. anual), el administrador registra múltiples pagos individuales, uno por cada cargo, y el cargo condonado se marca como Waived.
 
 ---
 
-# 19. Regla de pagos
-
-La primera versión no soportará pagos parciales.
-
-Esto significa que un cargo de:
-
-```text
-$1,500
-```
-
-no podrá quedar en:
-
-```text
-$500 pagado
-$1,000 pendiente
-```
-
-Un cargo solamente podrá pasar de:
-
-```text
-Pending
-```
-
-a:
-
-```text
-Paid
-```
-
-cuando la totalidad del cargo haya sido liquidada.
-
-Un pago podrá, sin embargo, liquidar varios cargos completos.
-
----
-
-# 20. Generación de cargos recurrentes
+# 19. Generación de cargos recurrentes
 
 La aplicación no dependerá de un proceso ejecutándose permanentemente.
 
@@ -632,7 +567,7 @@ El proceso deberá:
 
 ---
 
-# 21. Idempotencia de generación
+# 20. Idempotencia de generación
 
 La generación de cargos deberá ser idempotente.
 
@@ -656,7 +591,7 @@ una o diez veces deberá producir el mismo resultado final.
 
 ---
 
-# 22. Amenity
+# 21. Amenity
 
 Representa una amenidad o área común administrada por el condominio.
 
@@ -682,7 +617,7 @@ Active
 
 ---
 
-# 23. Reservation
+# 22. Reservation
 
 Representa una reservación de una amenidad realizada por un departamento.
 
@@ -703,7 +638,7 @@ Una reservación podrá generar un `Charge`.
 
 ---
 
-# 24. ReservationStatus
+# 23. ReservationStatus
 
 Estados iniciales:
 
@@ -716,7 +651,7 @@ Completed
 
 ---
 
-# 25. Cargo de una reservación
+# 24. Cargo de una reservación
 
 El cargo asociado a una reservación se generará inmediatamente cuando la reservación sea confirmada.
 
@@ -736,7 +671,7 @@ El importe será obtenido de `ServiceCatalog.DefaultAmount`.
 
 ---
 
-# 26. Reservaciones gratuitas
+# 25. Reservaciones gratuitas
 
 Todas las reservaciones deberán generar un cargo, incluso cuando el servicio sea gratuito.
 
@@ -761,7 +696,7 @@ La interpretación exacta de `Paid` para cargos de $0 deberá definirse en la im
 
 ---
 
-# 27. AmenityMaintenance
+# 26. AmenityMaintenance
 
 Representa un mantenimiento realizado sobre una amenidad.
 
@@ -782,7 +717,7 @@ El mantenimiento de una amenidad no genera automáticamente un cargo a los propi
 
 ---
 
-# 28. AmenityAvailabilityPeriod
+# 27. AmenityAvailabilityPeriod
 
 Representa un periodo durante el cual una amenidad no está disponible.
 
@@ -810,7 +745,7 @@ Motivo: Mantenimiento
 
 ---
 
-# 29. Aggregates propuestos
+# 28. Aggregates propuestos
 
 Los aggregates iniciales serán:
 
@@ -823,6 +758,7 @@ ServiceCatalog
 RecurringService
 
 Charge
+Payment
 Amenity
 Reservation
 AmenityMaintenance
@@ -835,7 +771,7 @@ La decisión definitiva se tomará antes de implementar las entidades de dominio
 
 ---
 
-# 30. Charge Aggregate
+# 29. Charge Aggregate
 
 El `Charge` deberá proteger las reglas relacionadas con la liquidación del cargo.
 
@@ -869,7 +805,7 @@ charge.Status = ChargeStatus.Paid;
 
 ---
 
-# 31. Invariantes principales
+# 30. Invariantes principales
 
 El modelo deberá proteger, como mínimo, las siguientes reglas.
 
@@ -927,7 +863,7 @@ La fecha de vencimiento de un cargo queda registrada y no cambia automáticament
 
 ---
 
-# 32. Modelo conceptual
+# 31. Modelo conceptual
 
 ```text
                           ┌──────────────┐
@@ -957,9 +893,6 @@ La fecha de vencimiento de un cargo queda registrada y no cambia automáticament
                          │ DueDate     │
                          │ Status      │
                          └──────┬──────┘
-                                │
-                                │
-                         PaymentAllocation
                                 │
                                 ▼
                          ┌─────────────┐
@@ -992,11 +925,12 @@ La fecha de vencimiento de un cargo queda registrada y no cambia automáticament
           │                       │
           │ PaymentDueDay         │
           └───────────────────────┘
+
 ```
 
 ---
 
-# 33. Decisiones confirmadas
+# 32. Decisiones confirmadas
 
 A partir de la versión 0.2 quedan confirmadas las siguientes decisiones:
 
@@ -1010,7 +944,7 @@ A partir de la versión 0.2 quedan confirmadas las siguientes decisiones:
 | Fecha de pago común para todos                   | Confirmado |
 | Fecha de vencimiento queda congelada en `Charge` | Confirmado |
 | No existen pagos parciales                       | Confirmado |
-| Un pago puede liquidar varios cargos             | Confirmado |
+| Un pago liquida exactamente un cargo             | Confirmado |
 | Reservaciones generan cargo inmediatamente       | Confirmado |
 | Reservaciones gratuitas generan cargo de $0      | Confirmado |
 | Cargos recurrentes se generan manualmente        | Confirmado |
@@ -1022,7 +956,7 @@ A partir de la versión 0.2 quedan confirmadas las siguientes decisiones:
 
 ---
 
-# 34. Pendientes de definición
+# 33. Pendientes de definición
 
 Quedan pendientes, entre otros:
 
@@ -1044,7 +978,7 @@ Quedan pendientes, entre otros:
 
 ---
 
-# 35. Próximo paso
+# 34. Próximo paso
 
 El siguiente paso recomendado es definir formalmente los **Aggregates, Entities, Value Objects, Domain Services y Domain Events**, incluyendo las invariantes que cada Aggregate debe proteger.
 
