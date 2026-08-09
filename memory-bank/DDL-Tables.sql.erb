@@ -1,0 +1,452 @@
+-- ============================================================
+-- Condo Admin System
+-- PostgreSQL Database Schema
+-- Version: 0.2
+-- ============================================================
+
+-- ============================================================
+-- 1. OWNERS
+-- ============================================================
+
+CREATE TABLE owners (
+    id              uuid PRIMARY KEY,
+    name            varchar(200) NOT NULL,
+    email           varchar(320),
+    phone           varchar(50),
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+
+-- ============================================================
+-- 2. DEPARTMENTS
+-- ============================================================
+
+CREATE TABLE departments (
+    id              uuid PRIMARY KEY,
+    owner_id        uuid NOT NULL,
+    building        varchar(100) NOT NULL,
+    number          varchar(50) NOT NULL,
+    status          varchar(20) NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT fk_departments_owner
+        FOREIGN KEY (owner_id)
+        REFERENCES owners (id),
+
+    CONSTRAINT ck_departments_status
+        CHECK (status IN ('Active', 'Inactive')),
+
+    CONSTRAINT uq_departments_building_number
+        UNIQUE (building, number)
+);
+
+
+-- ============================================================
+-- 3. CONDOMINIUM SETTINGS
+-- ============================================================
+
+CREATE TABLE condominium_settings (
+    id              uuid PRIMARY KEY,
+    payment_due_day smallint NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT ck_condominium_settings_payment_due_day
+        CHECK (payment_due_day BETWEEN 1 AND 31)
+);
+
+
+-- ============================================================
+-- 4. SERVICE CATALOG
+-- ============================================================
+
+CREATE TABLE service_catalog (
+    id              uuid PRIMARY KEY,
+    name            varchar(200) NOT NULL,
+    description     varchar(1000),
+    type            varchar(20) NOT NULL,
+    default_amount  numeric(12,2) NOT NULL DEFAULT 0,
+    is_active       boolean NOT NULL DEFAULT true,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT ck_service_catalog_type
+        CHECK (type IN (
+            'Recurring',
+            'Event',
+            'Extraordinary'
+        )),
+
+    CONSTRAINT ck_service_catalog_default_amount
+        CHECK (default_amount >= 0)
+);
+
+
+-- ============================================================
+-- 5. RECURRING SERVICES
+-- ============================================================
+
+CREATE TABLE recurring_services (
+    id                  uuid PRIMARY KEY,
+    department_id       uuid NOT NULL,
+    service_catalog_id  uuid NOT NULL,
+    start_date          date NOT NULL,
+    end_date            date,
+    is_active           boolean NOT NULL DEFAULT true,
+    created_at          timestamptz NOT NULL DEFAULT now(),
+    updated_at          timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT fk_recurring_services_department
+        FOREIGN KEY (department_id)
+        REFERENCES departments (id),
+
+    CONSTRAINT fk_recurring_services_service_catalog
+        FOREIGN KEY (service_catalog_id)
+        REFERENCES service_catalog (id),
+
+    CONSTRAINT ck_recurring_services_dates
+        CHECK (
+            end_date IS NULL
+            OR end_date >= start_date
+        )
+);
+
+
+-- ============================================================
+-- 6. AMENITIES
+-- ============================================================
+
+CREATE TABLE amenities (
+    id              uuid PRIMARY KEY,
+    name            varchar(200) NOT NULL,
+    description     varchar(1000),
+    location        varchar(500),
+    status          varchar(20) NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT ck_amenities_status
+        CHECK (status IN (
+            'Active',
+            'Inactive'
+        ))
+);
+
+
+-- ============================================================
+-- 7. RESERVATIONS
+-- ============================================================
+
+CREATE TABLE reservations (
+    id                  uuid PRIMARY KEY,
+    amenity_id          uuid NOT NULL,
+    department_id       uuid NOT NULL,
+    service_catalog_id  uuid NOT NULL,
+    start_date_time     timestamptz NOT NULL,
+    end_date_time       timestamptz NOT NULL,
+    status              varchar(20) NOT NULL,
+    created_at          timestamptz NOT NULL DEFAULT now(),
+    updated_at          timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT fk_reservations_amenity
+        FOREIGN KEY (amenity_id)
+        REFERENCES amenities (id),
+
+    CONSTRAINT fk_reservations_department
+        FOREIGN KEY (department_id)
+        REFERENCES departments (id),
+
+    CONSTRAINT fk_reservations_service_catalog
+        FOREIGN KEY (service_catalog_id)
+        REFERENCES service_catalog (id),
+
+    CONSTRAINT ck_reservations_dates
+        CHECK (
+            end_date_time > start_date_time
+        ),
+
+    CONSTRAINT ck_reservations_status
+        CHECK (status IN (
+            'Pending',
+            'Confirmed',
+            'Cancelled',
+            'Completed'
+        ))
+);
+
+
+-- ============================================================
+-- 8. AMENITY MAINTENANCE
+-- ============================================================
+
+CREATE TABLE amenity_maintenance (
+    id                  uuid PRIMARY KEY,
+    amenity_id          uuid NOT NULL,
+    maintenance_date    date NOT NULL,
+    description         varchar(1000) NOT NULL,
+    observations        varchar(2000),
+    cost                numeric(12,2),
+    created_at          timestamptz NOT NULL DEFAULT now(),
+    updated_at          timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT fk_amenity_maintenance_amenity
+        FOREIGN KEY (amenity_id)
+        REFERENCES amenities (id),
+
+    CONSTRAINT ck_amenity_maintenance_cost
+        CHECK (
+            cost IS NULL
+            OR cost >= 0
+        )
+);
+
+
+-- ============================================================
+-- 9. AMENITY AVAILABILITY PERIODS
+-- ============================================================
+
+CREATE TABLE amenity_availability_periods (
+    id                  uuid PRIMARY KEY,
+    amenity_id          uuid NOT NULL,
+    start_date_time     timestamptz NOT NULL,
+    end_date_time       timestamptz NOT NULL,
+    reason              varchar(200) NOT NULL,
+    observations        varchar(2000),
+    created_at          timestamptz NOT NULL DEFAULT now(),
+    updated_at          timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT fk_amenity_availability_periods_amenity
+        FOREIGN KEY (amenity_id)
+        REFERENCES amenities (id),
+
+    CONSTRAINT ck_amenity_availability_periods_dates
+        CHECK (
+            end_date_time > start_date_time
+        )
+);
+
+
+-- ============================================================
+-- 10. CHARGES
+-- ============================================================
+
+CREATE TABLE charges (
+    id                   uuid PRIMARY KEY,
+    department_id        uuid NOT NULL,
+    service_catalog_id   uuid NOT NULL,
+    recurring_service_id uuid,
+    reservation_id       uuid,
+    source_type          varchar(20) NOT NULL,
+
+    -- YYYYMM
+    -- Example: 202608 = August 2026
+    billing_period       integer,
+
+    original_amount      numeric(12,2) NOT NULL,
+    amount               numeric(12,2) NOT NULL,
+    due_date             date NOT NULL,
+    status               varchar(20) NOT NULL,
+
+    created_at           timestamptz NOT NULL DEFAULT now(),
+    updated_at           timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT fk_charges_department
+        FOREIGN KEY (department_id)
+        REFERENCES departments (id),
+
+    CONSTRAINT fk_charges_service_catalog
+        FOREIGN KEY (service_catalog_id)
+        REFERENCES service_catalog (id),
+
+    CONSTRAINT fk_charges_recurring_service
+        FOREIGN KEY (recurring_service_id)
+        REFERENCES recurring_services (id),
+
+    CONSTRAINT fk_charges_reservation
+        FOREIGN KEY (reservation_id)
+        REFERENCES reservations (id),
+
+    -- --------------------------------------------------------
+    -- Charge source
+    -- --------------------------------------------------------
+
+    CONSTRAINT ck_charges_source_type
+        CHECK (
+            source_type IN (
+                'Recurring',
+                'Reservation',
+                'Extraordinary'
+            )
+        ),
+
+    CONSTRAINT ck_charges_source
+        CHECK (
+            (
+                source_type = 'Recurring'
+                AND recurring_service_id IS NOT NULL
+                AND reservation_id IS NULL
+            )
+            OR
+            (
+                source_type = 'Reservation'
+                AND recurring_service_id IS NULL
+                AND reservation_id IS NOT NULL
+            )
+            OR
+            (
+                source_type = 'Extraordinary'
+                AND recurring_service_id IS NULL
+                AND reservation_id IS NULL
+            )
+        ),
+
+    -- --------------------------------------------------------
+    -- Billing period
+    --
+    -- YYYYMM
+    -- 202601 = January 2026
+    -- 202608 = August 2026
+    -- 202612 = December 2026
+    -- --------------------------------------------------------
+
+    CONSTRAINT ck_charges_billing_period
+        CHECK (
+            billing_period IS NULL
+            OR (
+                billing_period BETWEEN 190001 AND 999912
+                AND (billing_period % 100) BETWEEN 1 AND 12
+            )
+        ),
+
+    -- --------------------------------------------------------
+    -- Amounts
+    -- --------------------------------------------------------
+
+    CONSTRAINT ck_charges_amounts
+        CHECK (
+            original_amount >= 0
+            AND amount >= 0
+            AND amount <= original_amount
+        ),
+
+    -- --------------------------------------------------------
+    -- Status
+    -- --------------------------------------------------------
+
+    CONSTRAINT ck_charges_status
+        CHECK (
+            status IN (
+                'Pending',
+                'Paid',
+                'Waived',
+                'Cancelled'
+            )
+        )
+);
+
+
+-- ============================================================
+-- 11. PAYMENTS
+-- ============================================================
+
+CREATE TABLE payments (
+    id              uuid PRIMARY KEY,
+    charge_id       uuid NOT NULL,
+    payment_date    timestamptz NOT NULL,
+    amount          numeric(12,2) NOT NULL,
+    payment_method  varchar(30) NOT NULL,
+    reference       varchar(200),
+    notes           varchar(1000),
+    created_at      timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT fk_payments_charge
+        FOREIGN KEY (charge_id)
+        REFERENCES charges (id),
+
+    -- One Charge can have at most one Payment.
+    CONSTRAINT uq_payments_charge
+        UNIQUE (charge_id),
+
+    CONSTRAINT ck_payments_amount
+        CHECK (
+            amount >= 0
+        )
+);
+
+
+-- ============================================================
+-- INDEXES
+-- ============================================================
+
+CREATE INDEX ix_departments_owner_id
+    ON departments (owner_id);
+
+
+CREATE INDEX ix_recurring_services_department_id
+    ON recurring_services (department_id);
+
+
+CREATE INDEX ix_recurring_services_service_catalog_id
+    ON recurring_services (service_catalog_id);
+
+
+CREATE INDEX ix_reservations_amenity_period
+    ON reservations (
+        amenity_id,
+        start_date_time,
+        end_date_time
+    );
+
+
+CREATE INDEX ix_reservations_department_id
+    ON reservations (department_id);
+
+
+CREATE INDEX ix_charges_department_id
+    ON charges (department_id);
+
+
+CREATE INDEX ix_charges_status_due_date
+    ON charges (
+        status,
+        due_date
+    );
+
+
+CREATE INDEX ix_charges_billing_period
+    ON charges (billing_period);
+
+
+CREATE INDEX ix_amenity_maintenance_amenity_id
+    ON amenity_maintenance (amenity_id);
+
+
+CREATE INDEX ix_amenity_availability_periods_amenity_period
+    ON amenity_availability_periods (
+        amenity_id,
+        start_date_time,
+        end_date_time
+    );
+
+
+-- ============================================================
+-- IDEMPOTENCY
+--
+-- A recurring service can generate at most one Charge
+-- for a given BillingPeriod.
+--
+-- Example:
+-- RecurringService = X
+-- BillingPeriod    = 202608
+--
+-- Only one recurring Charge is allowed.
+-- ============================================================
+
+CREATE UNIQUE INDEX ux_charges_recurring_period
+    ON charges (
+        recurring_service_id,
+        billing_period
+    )
+    WHERE source_type = 'Recurring';
