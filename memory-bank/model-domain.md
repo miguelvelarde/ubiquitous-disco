@@ -765,7 +765,7 @@ AmenityMaintenance
 AmenityAvailabilityPeriod
 ```
 
-`Payment` y `PaymentAllocation` deberán tratarse como parte del modelo de Billing y se evaluará durante el diseño de aggregates si forman parte del `Charge Aggregate` o si `Payment` debe constituir un aggregate independiente.
+`Payment` deberá tratarse como parte del modelo de Billing y se evaluará durante el diseño de aggregates si forma parte del `Charge Aggregate` o si `Payment` debe constituir un aggregate independiente.
 
 La decisión definitiva se tomará antes de implementar las entidades de dominio.
 
