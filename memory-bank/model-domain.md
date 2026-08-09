@@ -525,11 +525,23 @@ Reference
 Notes
 ```
 
-Un pago podrá liquidar uno o más cargos.
+Un pago se asocia a **un único cargo**.
 
-Esto es necesario para soportar pagos anticipados.
+Esto permite mantener una relación directa entre el pago y la obligación económica que está liquidando.
 
----
+Para pagos anticipados, como el pago anual de mantenimiento, se registrará un pago individual por cada cargo que se liquide.
+
+Ejemplo:
+
+```text
+Pago 1 → Cargo Enero
+Pago 2 → Cargo Febrero
+Pago 3 → Cargo Marzo
+...
+Pago 11 → Cargo Noviembre
+```
+
+El cargo correspondiente al mes condonado se marcará como `Waived` y no requerirá un pago.
 
 # 18. Regla de pagos
 
