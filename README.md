@@ -423,10 +423,10 @@ Charges
 Payments
 
 Amenities
-AmenityMaintenance
-AmenityAvailability
-
 Reservations
+
+Maintenance periods are recorded as Reservations with a maintenance
+ServiceCatalog entry.
 ```
 
 La estructura definitiva de tablas y relaciones será definida después de validar el modelo de dominio.
@@ -620,10 +620,10 @@ Billing
 
 Amenities
     ├── Amenity
-    ├── Maintenance
-    ├── Availability
     └── Reservation
 ```
+
+Maintenance periods are recorded as Reservations with a maintenance ServiceCatalog entry.
 
 La relación conceptual principal de facturación será:
 

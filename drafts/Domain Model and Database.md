@@ -68,9 +68,7 @@ No existe un concepto especial de pago anual. Si un departamento paga el año co
 | ServiceCatalog          | Definición de servicios y DefaultAmount vigente.                 |
 | RecurringServices       | Asignación de un servicio recurrente a un departamento, con vigencia. |
 | Amenities               | Amenidades del condominio.                                       |
-| Reservations            | Reservaciones de una amenidad por un departamento.               |
-| AmenityMaintenance      | Historial de mantenimiento de una amenidad.                      |
-| AmenityAvailabilityPeriods | Periodos de indisponibilidad de una amenidad.                 |
+| Reservations            | Reservaciones y periodos de mantenimiento de amenidades.         |
 | Charges                 | Obligaciones económicas individuales.                            |
 | Payments                | Pagos individuales asociados a un único Charge.                  |
 

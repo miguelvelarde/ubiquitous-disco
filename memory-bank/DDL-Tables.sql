@@ -4,6 +4,9 @@
 -- Version: 0.2
 -- ============================================================
 
+CREATE SCHEMA IF NOT EXISTS cas;
+SET search_path = cas, public;
+
 -- ============================================================
 -- 1. OWNERS
 -- ============================================================
@@ -13,15 +16,30 @@ CREATE TABLE owners (
     name            varchar(200) NOT NULL,
     email           varchar(320),
     phone           varchar(50),
-    created_at      timestamptz NOT NULL DEFAULT now(),
-    updated_at      timestamptz NOT NULL DEFAULT now()
+    created_at      timestamptz NOT NULL DEFAULT now()
 );
 
 
 -- ============================================================
--- 2. DEPARTMENTS
+-- 2. USERS
 -- ============================================================
 
+CREATE TABLE users (
+    id              uuid PRIMARY KEY,
+    username        varchar(150) NOT NULL UNIQUE,
+    password_hash   varchar(200) NOT NULL,
+    role            varchar(20) NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT ck_users_role
+        CHECK (role IN ('Admin', 'ReadOnly'))
+);
+
+
+-- ============================================================
+-- 3. DEPARTMENTS
+-- ============================================================
+    
 CREATE TABLE departments (
     id              uuid PRIMARY KEY,
     owner_id        uuid NOT NULL,
@@ -29,7 +47,6 @@ CREATE TABLE departments (
     number          varchar(50) NOT NULL,
     status          varchar(20) NOT NULL,
     created_at      timestamptz NOT NULL DEFAULT now(),
-    updated_at      timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT fk_departments_owner
         FOREIGN KEY (owner_id)
@@ -44,22 +61,45 @@ CREATE TABLE departments (
 
 
 -- ============================================================
--- 3. CONDOMINIUM SETTINGS
+-- 4. DEPARTMENT OWNER HISTORY
 -- ============================================================
 
-CREATE TABLE condominium_settings (
+CREATE TABLE department_owner_history (
     id              uuid PRIMARY KEY,
-    payment_due_day smallint NOT NULL,
+    department_id   uuid NOT NULL,
+    owner_id        uuid NOT NULL,
+    start_date      date NOT NULL,
+    end_date        date,
     created_at      timestamptz NOT NULL DEFAULT now(),
-    updated_at      timestamptz NOT NULL DEFAULT now(),
+    created_by      uuid NOT NULL,
 
-    CONSTRAINT ck_condominium_settings_payment_due_day
-        CHECK (payment_due_day BETWEEN 1 AND 31)
+    CONSTRAINT fk_department_owner_history_department
+        FOREIGN KEY (department_id)
+        REFERENCES departments (id),
+
+    CONSTRAINT fk_department_owner_history_owner
+        FOREIGN KEY (owner_id)
+        REFERENCES owners (id),
+
+    CONSTRAINT fk_department_owner_history_created_by
+        FOREIGN KEY (created_by)
+        REFERENCES users (id),
+
+    CONSTRAINT ck_department_owner_history_dates
+        CHECK (
+            end_date IS NULL
+            OR end_date >= start_date
+        )
 );
 
 
+CREATE UNIQUE INDEX ux_department_owner_history_current
+    ON department_owner_history (department_id)
+    WHERE end_date IS NULL;
+
+
 -- ============================================================
--- 4. SERVICE CATALOG
+-- 5. SERVICE CATALOG
 -- ============================================================
 
 CREATE TABLE service_catalog (
@@ -70,7 +110,6 @@ CREATE TABLE service_catalog (
     default_amount  numeric(12,2) NOT NULL DEFAULT 0,
     is_active       boolean NOT NULL DEFAULT true,
     created_at      timestamptz NOT NULL DEFAULT now(),
-    updated_at      timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT ck_service_catalog_type
         CHECK (type IN (
@@ -85,7 +124,7 @@ CREATE TABLE service_catalog (
 
 
 -- ============================================================
--- 5. RECURRING SERVICES
+-- 6. RECURRING SERVICES
 -- ============================================================
 
 CREATE TABLE recurring_services (
@@ -94,9 +133,9 @@ CREATE TABLE recurring_services (
     service_catalog_id  uuid NOT NULL,
     start_date          date NOT NULL,
     end_date            date,
+    due_date            date NOT NULL,
     is_active           boolean NOT NULL DEFAULT true,
     created_at          timestamptz NOT NULL DEFAULT now(),
-    updated_at          timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT fk_recurring_services_department
         FOREIGN KEY (department_id)
@@ -115,7 +154,7 @@ CREATE TABLE recurring_services (
 
 
 -- ============================================================
--- 6. AMENITIES
+-- 7. AMENITIES
 -- ============================================================
 
 CREATE TABLE amenities (
@@ -125,7 +164,6 @@ CREATE TABLE amenities (
     location        varchar(500),
     status          varchar(20) NOT NULL,
     created_at      timestamptz NOT NULL DEFAULT now(),
-    updated_at      timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT ck_amenities_status
         CHECK (status IN (
@@ -136,7 +174,7 @@ CREATE TABLE amenities (
 
 
 -- ============================================================
--- 7. RESERVATIONS
+-- 8. RESERVATIONS
 -- ============================================================
 
 CREATE TABLE reservations (
@@ -148,7 +186,6 @@ CREATE TABLE reservations (
     end_date_time       timestamptz NOT NULL,
     status              varchar(20) NOT NULL,
     created_at          timestamptz NOT NULL DEFAULT now(),
-    updated_at          timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT fk_reservations_amenity
         FOREIGN KEY (amenity_id)
@@ -177,56 +214,6 @@ CREATE TABLE reservations (
 );
 
 
--- ============================================================
--- 8. AMENITY MAINTENANCE
--- ============================================================
-
-CREATE TABLE amenity_maintenance (
-    id                  uuid PRIMARY KEY,
-    amenity_id          uuid NOT NULL,
-    maintenance_date    date NOT NULL,
-    description         varchar(1000) NOT NULL,
-    observations        varchar(2000),
-    cost                numeric(12,2),
-    created_at          timestamptz NOT NULL DEFAULT now(),
-    updated_at          timestamptz NOT NULL DEFAULT now(),
-
-    CONSTRAINT fk_amenity_maintenance_amenity
-        FOREIGN KEY (amenity_id)
-        REFERENCES amenities (id),
-
-    CONSTRAINT ck_amenity_maintenance_cost
-        CHECK (
-            cost IS NULL
-            OR cost >= 0
-        )
-);
-
-
--- ============================================================
--- 9. AMENITY AVAILABILITY PERIODS
--- ============================================================
-
-CREATE TABLE amenity_availability_periods (
-    id                  uuid PRIMARY KEY,
-    amenity_id          uuid NOT NULL,
-    start_date_time     timestamptz NOT NULL,
-    end_date_time       timestamptz NOT NULL,
-    reason              varchar(200) NOT NULL,
-    observations        varchar(2000),
-    created_at          timestamptz NOT NULL DEFAULT now(),
-    updated_at          timestamptz NOT NULL DEFAULT now(),
-
-    CONSTRAINT fk_amenity_availability_periods_amenity
-        FOREIGN KEY (amenity_id)
-        REFERENCES amenities (id),
-
-    CONSTRAINT ck_amenity_availability_periods_dates
-        CHECK (
-            end_date_time > start_date_time
-        )
-);
-
 
 -- ============================================================
 -- 10. CHARGES
@@ -236,7 +223,9 @@ CREATE TABLE charges (
     id                   uuid PRIMARY KEY,
     department_id        uuid NOT NULL,
     service_catalog_id   uuid NOT NULL,
+    
     recurring_service_id uuid,
+
     reservation_id       uuid,
     source_type          varchar(20) NOT NULL,
 
@@ -250,7 +239,7 @@ CREATE TABLE charges (
     status               varchar(20) NOT NULL,
 
     created_at           timestamptz NOT NULL DEFAULT now(),
-    updated_at           timestamptz NOT NULL DEFAULT now(),
+    created_by           uuid NOT NULL,
 
     CONSTRAINT fk_charges_department
         FOREIGN KEY (department_id)
@@ -264,9 +253,15 @@ CREATE TABLE charges (
         FOREIGN KEY (recurring_service_id)
         REFERENCES recurring_services (id),
 
+    -- recurring_service_id removed: use recurring_services for generation only
+
     CONSTRAINT fk_charges_reservation
         FOREIGN KEY (reservation_id)
         REFERENCES reservations (id),
+
+    CONSTRAINT fk_charges_created_by
+        FOREIGN KEY (created_by)
+        REFERENCES users (id),
 
     -- --------------------------------------------------------
     -- Charge source
@@ -277,7 +272,8 @@ CREATE TABLE charges (
             source_type IN (
                 'Recurring',
                 'Reservation',
-                'Extraordinary'
+                'Extraordinary',
+                'Adjustment'
             )
         ),
 
@@ -297,6 +293,12 @@ CREATE TABLE charges (
             OR
             (
                 source_type = 'Extraordinary'
+                AND recurring_service_id IS NULL
+                AND reservation_id IS NULL
+            )
+            OR
+            (
+                source_type = 'Adjustment'
                 AND recurring_service_id IS NULL
                 AND reservation_id IS NULL
             )
@@ -327,8 +329,12 @@ CREATE TABLE charges (
     CONSTRAINT ck_charges_amounts
         CHECK (
             original_amount >= 0
-            AND amount >= 0
-            AND amount <= original_amount
+            AND (
+                -- Adjustments are represented as charges and may carry negative amounts
+                (source_type = 'Adjustment')
+                OR
+                (amount >= 0 AND amount <= original_amount)
+            )
         ),
 
     -- --------------------------------------------------------
@@ -357,13 +363,18 @@ CREATE TABLE payments (
     payment_date    timestamptz NOT NULL,
     amount          numeric(12,2) NOT NULL,
     payment_method  varchar(30) NOT NULL,
-    reference       varchar(200),
+    reference       varchar(200) NOT NULL,
     notes           varchar(1000),
     created_at      timestamptz NOT NULL DEFAULT now(),
+    created_by      uuid NOT NULL,
 
     CONSTRAINT fk_payments_charge
         FOREIGN KEY (charge_id)
         REFERENCES charges (id),
+
+    CONSTRAINT fk_payments_created_by
+        FOREIGN KEY (created_by)
+        REFERENCES users (id),
 
     -- One Charge can have at most one Payment.
     CONSTRAINT uq_payments_charge
@@ -371,7 +382,12 @@ CREATE TABLE payments (
 
     CONSTRAINT ck_payments_amount
         CHECK (
-            amount >= 0
+            amount > 0
+        ),
+
+    CONSTRAINT ck_payments_method
+        CHECK (
+            payment_method IN ('Cash','Card','Transfer','Other')
         )
 );
 
@@ -382,6 +398,10 @@ CREATE TABLE payments (
 
 CREATE INDEX ix_departments_owner_id
     ON departments (owner_id);
+
+
+CREATE INDEX ix_department_owner_history_owner_id
+    ON department_owner_history (owner_id);
 
 
 CREATE INDEX ix_recurring_services_department_id
@@ -419,18 +439,6 @@ CREATE INDEX ix_charges_billing_period
     ON charges (billing_period);
 
 
-CREATE INDEX ix_amenity_maintenance_amenity_id
-    ON amenity_maintenance (amenity_id);
-
-
-CREATE INDEX ix_amenity_availability_periods_amenity_period
-    ON amenity_availability_periods (
-        amenity_id,
-        start_date_time,
-        end_date_time
-    );
-
-
 -- ============================================================
 -- IDEMPOTENCY
 --
@@ -445,8 +453,27 @@ CREATE INDEX ix_amenity_availability_periods_amenity_period
 -- ============================================================
 
 CREATE UNIQUE INDEX ux_charges_recurring_period
-    ON charges (
-        recurring_service_id,
-        billing_period
-    )
-    WHERE source_type = 'Recurring';
+        ON charges (recurring_service_id, billing_period)
+        WHERE source_type = 'Recurring'
+            AND recurring_service_id IS NOT NULL
+            AND billing_period IS NOT NULL;
+
+
+-- ============================================================
+-- TRIGGERS
+-- Prevent changes to charges.original_amount after insert
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION prevent_original_amount_update()
+RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' AND NEW.original_amount <> OLD.original_amount THEN
+        RAISE EXCEPTION 'original_amount is immutable';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_charges_prevent_original_amount_update
+BEFORE UPDATE ON charges
+FOR EACH ROW EXECUTE FUNCTION prevent_original_amount_update();

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Hestia.csproj" />
+  <Project Path="..\Hestia.Tests\Hestia.Tests.csproj" />
+</Solution>
