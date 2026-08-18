@@ -124,6 +124,7 @@ The implementation must use the following classification.
 | User | `class` | Entity |
 | ChargeOrigin | `class` / immutable type | Value Object |
 | ChargeStatus | `enum` | Domain type |
+| ReservationStatus | `enum` | Domain type |
 | PaymentMethod | `enum` | Domain type |
 | BillingPeriod | `int` | Primitive domain representation |
 | Money | `decimal` | Primitive domain representation |
@@ -294,6 +295,8 @@ Confirmed -> Cancelled
 ```
 
 There is no practical `Pending` state.
+
+`ReservationStatus` is represented as an enum with only `Confirmed` and `Cancelled` values. The `Reservation` entity enforces its valid transition.
 
 ### Confirmation
 

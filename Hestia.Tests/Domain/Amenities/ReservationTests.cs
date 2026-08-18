@@ -1,0 +1,98 @@
+using Hestia.Domain.Amenities;
+using Xunit;
+
+namespace Hestia.Tests.Domain.Amenities;
+
+public sealed class ReservationTests
+{
+    [Fact]
+    public void Constructor_WhenStateIsValid_CreatesConfirmedReservation()
+    {
+        var id = Guid.NewGuid();
+        var amenityId = Guid.NewGuid();
+        var departmentId = Guid.NewGuid();
+        var serviceCatalogId = Guid.NewGuid();
+        var startDateTime = new DateTimeOffset(2026, 8, 20, 10, 0, 0, TimeSpan.Zero);
+        var endDateTime = new DateTimeOffset(2026, 8, 20, 12, 0, 0, TimeSpan.Zero);
+        var createdAt = new DateTimeOffset(2026, 8, 18, 9, 0, 0, TimeSpan.Zero);
+        var createdBy = Guid.NewGuid();
+
+        var reservation = new Reservation(
+            id,
+            amenityId,
+            departmentId,
+            serviceCatalogId,
+            startDateTime,
+            endDateTime,
+            createdAt,
+            createdBy);
+
+        Assert.Equal(id, reservation.Id);
+        Assert.Equal(amenityId, reservation.AmenityId);
+        Assert.Equal(departmentId, reservation.DepartmentId);
+        Assert.Equal(serviceCatalogId, reservation.ServiceCatalogId);
+        Assert.Equal(startDateTime, reservation.StartDateTime);
+        Assert.Equal(endDateTime, reservation.EndDateTime);
+        Assert.Equal(ReservationStatus.Confirmed, reservation.Status);
+        Assert.Equal(createdAt, reservation.CreatedAt);
+        Assert.Equal(createdBy, reservation.CreatedBy);
+    }
+
+    [Fact]
+    public void Constructor_WhenEndIsEqualToStart_ThrowsArgumentException()
+    {
+        var startDateTime = new DateTimeOffset(2026, 8, 20, 10, 0, 0, TimeSpan.Zero);
+
+        Assert.Throws<ArgumentException>(() => CreateReservation(startDateTime, startDateTime));
+    }
+
+    [Fact]
+    public void Constructor_WhenEndIsBeforeStart_ThrowsArgumentException()
+    {
+        var startDateTime = new DateTimeOffset(2026, 8, 20, 10, 0, 0, TimeSpan.Zero);
+        var endDateTime = new DateTimeOffset(2026, 8, 20, 9, 0, 0, TimeSpan.Zero);
+
+        Assert.Throws<ArgumentException>(() => CreateReservation(startDateTime, endDateTime));
+    }
+
+    [Fact]
+    public void Constructor_WhenAmenityIdIsEmpty_ThrowsArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => CreateReservation(amenityId: Guid.Empty));
+    }
+
+    [Fact]
+    public void Cancel_WhenReservationIsConfirmed_SetsCancelled()
+    {
+        var reservation = CreateReservation();
+
+        reservation.Cancel();
+
+        Assert.Equal(ReservationStatus.Cancelled, reservation.Status);
+    }
+
+    [Fact]
+    public void Cancel_WhenReservationWasAlreadyCancelled_ThrowsInvalidOperationException()
+    {
+        var reservation = CreateReservation();
+        reservation.Cancel();
+
+        Assert.Throws<InvalidOperationException>(reservation.Cancel);
+
+        Assert.Equal(ReservationStatus.Cancelled, reservation.Status);
+    }
+
+    private static Reservation CreateReservation(
+        DateTimeOffset? startDateTime = null,
+        DateTimeOffset? endDateTime = null,
+        Guid? amenityId = null) =>
+        new(
+            id: Guid.NewGuid(),
+            amenityId: amenityId ?? Guid.NewGuid(),
+            departmentId: Guid.NewGuid(),
+            serviceCatalogId: Guid.NewGuid(),
+            startDateTime: startDateTime ?? new DateTimeOffset(2026, 8, 20, 10, 0, 0, TimeSpan.Zero),
+            endDateTime: endDateTime ?? new DateTimeOffset(2026, 8, 20, 12, 0, 0, TimeSpan.Zero),
+            createdAt: new DateTimeOffset(2026, 8, 18, 9, 0, 0, TimeSpan.Zero),
+            createdBy: Guid.NewGuid());
+}
