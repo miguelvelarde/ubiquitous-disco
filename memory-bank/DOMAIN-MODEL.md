@@ -16,7 +16,7 @@ Scope: monolithic application, PostgreSQL, one active user at a time, roles `Adm
 Department, Owner, DepartmentOwnerHistory, CondominiumSettings.
 
 ### Billing
-ServiceCatalog, RecurringService, Charge, Payment, ChargeAdjustment.
+ServiceCatalog, RecurringService, Charge, Payment.
 
 ### Amenities
 Amenity, Reservation. Maintenance periods are Reservations using a maintenance ServiceCatalog entry.
@@ -44,7 +44,7 @@ Department, Owner, ServiceCatalog, RecurringService, Amenity and DepartmentOwner
 
 ### ChargeOrigin
 
-Initial types: `RecurringService`, `Reservation`, `Extraordinary`. The origin determines which reference is valid.
+Initial types: `RecurringService`, `Reservation`, `Extraordinary`, `Adjustment`. The origin determines which reference is valid.
 
 Money, BillingPeriod and PaymentMethod are intentionally not Value Objects: they have no current independent domain behavior. `BillingPeriod` is persisted as integer `YYYYMM`.
 
@@ -63,7 +63,9 @@ Pending
 
 ### Amounts
 
-`OriginalAmount` is immutable. `Amount` changes only through explicit domain behavior. A zero-amount Charge is considered `Waived`.
+`OriginalAmount` is immutable. `Amount` changes only through explicit domain behavior. A zero-amount normal Charge is considered `Waived`.
+
+Normal Charges cannot have a negative amount. An Adjustment Charge is the explicit exception: it has `OriginalAmount = 0` and a non-zero positive or negative `Amount`.
 
 ### Charge.Pay()
 
@@ -75,7 +77,7 @@ Charge must be `Pending`; `OriginalAmount` remains unchanged; `Amount` becomes z
 
 ### Charge.Cancel()
 
-Administrative cancellation is allowed from `Pending` and results in terminal `Cancelled`. A paid Charge is not changed to cancelled; an economic reversal is represented by a new `ChargeAdjustment`.
+Administrative cancellation is allowed from `Pending` and results in terminal `Cancelled`. A paid Charge is not changed to cancelled; an economic reversal is represented by a new Adjustment Charge.
 
 ## 7. Payment
 
@@ -85,19 +87,21 @@ Methods: `Cash`, `Card`, `Transfer`, `Other`.
 
 `Reference` is free text chosen by the administrator to identify the payment.
 
-## 8. ChargeAdjustment
+## 8. Adjustment Charges
 
-A new accounting record used to compensate or modify the economic effect of an existing Charge without changing the original historical record.
+An Adjustment Charge is a Charge whose `ChargeOrigin` is `Adjustment`. It is not a separate entity, Aggregate or table.
+
+It compensates or modifies economic effects without changing an original historical Charge or Payment.
 
 Example:
 
 ```text
 Charge           +1000
 Payment          +1000
-ChargeAdjustment -1000
+Adjustment Charge -1000
 ```
 
-Negative amounts are allowed for compensation. There is no mandatory reason catalog or automatic rule for applicability; the administrator decides the concept, amount and when to use it. It may support reservation reversals, bonuses and other discretionary adjustments.
+The ServiceCatalog entry supplies the discretionary concept. An Adjustment Charge has no recurring-service or reservation reference, `OriginalAmount = 0`, and a non-zero positive or negative `Amount`. It is created directly as `Paid` without a Payment, because it records an administrative accounting effect rather than a cash collection. There is no mandatory reason catalog or automatic rule for applicability. It may support reservation reversals, bonuses and other discretionary adjustments.
 
 ## 9. Reservation
 
@@ -115,7 +119,7 @@ A Reservation cannot overlap another Reservation. Maintenance is represented by 
 
 ## 11. Reservation Cancellation
 
-A Reservation can be cancelled at any time. It is not deleted. A `ChargeAdjustment` is created when economic compensation/reversal is required. Original Charge and Payment remain unchanged.
+A Reservation can be cancelled at any time. It is not deleted. An Adjustment Charge is created when economic compensation/reversal is required. Original Charge and Payment remain unchanged.
 
 ## 12. Recurring Services
 
@@ -167,19 +171,19 @@ created_at
 created_by
 ```
 
-`created_by` identifies the authenticated user who created the record. For later modifications, knowing the original creator is sufficient for this version unless a new requirement says otherwise. New business records such as Payment, ChargeAdjustment and DepartmentOwnerHistory identify their creator.
+`created_by` identifies the authenticated user who created the record. For later modifications, knowing the original creator is sufficient for this version unless a new requirement says otherwise. New business records such as Payment, Adjustment Charges and DepartmentOwnerHistory identify their creator.
 
 ## 20. Application Coordination
 
-The Application Layer coordinates multi-Aggregate operations such as Confirm Reservation + Charge, Cancel Reservation + ChargeAdjustment, Change Owner + owner history, Generate recurring Charges, and Register Payment. A transaction commits only when the complete use case succeeds.
+The Application Layer coordinates multi-Aggregate operations such as Confirm Reservation + Charge, Cancel Reservation + Adjustment Charge, Change Owner + owner history, Generate recurring Charges, and Register Payment. A transaction commits only when the complete use case succeeds.
 
 ## 21. Discretionary Operations
 
-No automatic rules are implemented for overdue surcharges, ChargeAdjustment reasons/applicability, extraordinary charges, promotions, or administrative Charge cancellation. These are deliberately discretionary administrator operations.
+No automatic rules are implemented for overdue surcharges, Adjustment Charge concepts/applicability, extraordinary charges, promotions, or administrative Charge cancellation. These are deliberately discretionary administrator operations.
 
 ## 22. Financial History
 
-Historical financial records are not modified to hide later events. Corrections/reversals are represented by new records, especially `ChargeAdjustment`.
+Historical financial records are not modified to hide later events. Corrections/reversals are represented by new Adjustment Charges.
 
 ## 23. Out of Scope
 

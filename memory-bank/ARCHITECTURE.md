@@ -61,7 +61,7 @@ Examples:
 
 ```text
 ConfirmReservation -> Reservation + Charge
-CancelReservation  -> Reservation + ChargeAdjustment
+CancelReservation  -> Reservation + Adjustment Charge
 RegisterPayment    -> Charge + Payment
 ChangeOwner        -> Department + OwnerHistory
 ```

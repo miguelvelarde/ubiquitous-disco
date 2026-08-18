@@ -7,5 +7,6 @@ public enum ChargeOriginType
 {
     RecurringService,
     Reservation,
-    Extraordinary
+    Extraordinary,
+    Adjustment
 }

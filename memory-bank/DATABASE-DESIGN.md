@@ -14,8 +14,8 @@ All application tables, indexes and functions are created in the `cas` schema. A
 
 - PKs use UUID.
 - Monetary amounts use `numeric(12,2)`.
-- Normal monetary amounts cannot be negative.
-- `ChargeAdjustment.Amount` may be negative.
+- Normal Charge amounts cannot be negative.
+- Adjustment Charges may have positive or negative amounts.
 - State fields use `varchar` plus `CHECK` constraints.
 - FKs enforce referential integrity.
 - Historical financial records are not overwritten to hide later events.
@@ -66,6 +66,7 @@ Origin consistency must be enforced:
 - `RecurringService` -> RecurringServiceId required.
 - `Reservation` -> ReservationId required.
 - `Extraordinary` -> no unrelated origin reference.
+- `Adjustment` -> no recurring/reservation origin reference; `OriginalAmount = 0`; amount is non-zero and may be positive or negative; status is `Paid` without a Payment.
 
 ## 7. Charge Uniqueness
 
@@ -79,9 +80,9 @@ Payment stores `created_at` and `created_by`.
 
 Methods: `Cash`, `Card`, `Transfer`, `Other`. Reference is mandatory free text.
 
-## 9. ChargeAdjustment
+## 9. Adjustment Charges
 
-New accounting record; amount may be positive or negative. Original Charge and Payment are not modified. No mandatory reason catalog. Store `created_at` and `created_by`. Final relation/schema is defined in DDL.
+An adjustment is a Charge with `source_type = 'Adjustment'`; there is no separate `charge_adjustments` table. It may have a positive or negative non-zero amount. Its `original_amount` is zero and it is created as `Paid` without a Payment. The ServiceCatalog entry defines its discretionary concept. Existing Charges and Payments are never modified to hide the adjustment.
 
 ## 10. Reservation
 
@@ -127,7 +128,7 @@ Validate availability + confirm Reservation + create Charge atomically.
 
 ### Cancel Reservation
 
-Cancel Reservation + create ChargeAdjustment when required atomically.
+Cancel Reservation + create an Adjustment Charge when required atomically.
 
 ### Register Payment
 

@@ -328,12 +328,17 @@ CREATE TABLE charges (
 
     CONSTRAINT ck_charges_amounts
         CHECK (
-            original_amount >= 0
-            AND (
-                -- Adjustments are represented as charges and may carry negative amounts
-                (source_type = 'Adjustment')
-                OR
-                (amount >= 0 AND amount <= original_amount)
+            (
+                source_type = 'Adjustment'
+                AND original_amount = 0
+                AND amount <> 0
+            )
+            OR
+            (
+                source_type <> 'Adjustment'
+                AND original_amount >= 0
+                AND amount >= 0
+                AND amount <= original_amount
             )
         ),
 
@@ -349,6 +354,13 @@ CREATE TABLE charges (
                 'Waived',
                 'Cancelled'
             )
+        ),
+
+    -- An adjustment is applied immediately and never receives a Payment.
+    CONSTRAINT ck_charges_adjustment_status
+        CHECK (
+            source_type <> 'Adjustment'
+            OR status = 'Paid'
         )
 );
 
@@ -477,3 +489,26 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_charges_prevent_original_amount_update
 BEFORE UPDATE ON charges
 FOR EACH ROW EXECUTE FUNCTION prevent_original_amount_update();
+
+
+-- An Adjustment Charge records an administrative accounting effect directly.
+-- It must not receive a cash Payment.
+CREATE OR REPLACE FUNCTION prevent_payment_for_adjustment_charge()
+RETURNS trigger AS $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+          FROM charges
+         WHERE id = NEW.charge_id
+           AND source_type = 'Adjustment'
+    ) THEN
+        RAISE EXCEPTION 'Adjustment charges cannot receive payments';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_payments_prevent_adjustment_charge_payment
+BEFORE INSERT OR UPDATE OF charge_id ON payments
+FOR EACH ROW EXECUTE FUNCTION prevent_payment_for_adjustment_charge();

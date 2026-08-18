@@ -38,6 +38,63 @@ public sealed class ChargeTests
         Assert.Throws<ArgumentOutOfRangeException>(() => CreateCharge(billingPeriod: 202613));
     }
 
+    [Theory]
+    [InlineData(300.00)]
+    [InlineData(-300.00)]
+    public void CreateAdjustment_WhenAmountHasEconomicEffect_CreatesPaidChargeWithoutPayment(decimal amount)
+    {
+        var adjustment = Charge.CreateAdjustment(
+            id: Guid.NewGuid(),
+            departmentId: Guid.NewGuid(),
+            serviceCatalogId: Guid.NewGuid(),
+            amount: amount,
+            dueDate: new DateOnly(2026, 8, 18),
+            createdAt: new DateTimeOffset(2026, 8, 18, 9, 0, 0, TimeSpan.Zero),
+            createdBy: Guid.NewGuid());
+
+        Assert.Equal(ChargeOriginType.Adjustment, adjustment.Origin.Type);
+        Assert.Equal(0m, adjustment.OriginalAmount);
+        Assert.Equal(amount, adjustment.Amount);
+        Assert.Null(adjustment.BillingPeriod);
+        Assert.Equal(ChargeStatus.Paid, adjustment.Status);
+        Assert.Null(adjustment.Payment);
+    }
+
+    [Fact]
+    public void CreateAdjustment_WhenAmountIsZero_ThrowsArgumentOutOfRangeException()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => CreateAdjustment(amount: 0m));
+    }
+
+    [Fact]
+    public void Constructor_WhenOriginIsAdjustment_RequiresAdjustmentFactory()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new Charge(
+                id: Guid.NewGuid(),
+                departmentId: Guid.NewGuid(),
+                serviceCatalogId: Guid.NewGuid(),
+                amount: 300.00m,
+                billingPeriod: null,
+                dueDate: new DateOnly(2026, 8, 18),
+                origin: ChargeOrigin.Adjustment(),
+                createdAt: new DateTimeOffset(2026, 8, 18, 9, 0, 0, TimeSpan.Zero),
+                createdBy: Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void CreateAdjustment_IsTerminalAndCannotBePaidWaivedOrCancelled()
+    {
+        var adjustment = CreateAdjustment(amount: -300.00m);
+
+        Assert.Throws<InvalidOperationException>(() => Pay(adjustment, -300.00m));
+        Assert.Throws<InvalidOperationException>(adjustment.Waive);
+        Assert.Throws<InvalidOperationException>(adjustment.Cancel);
+
+        Assert.Equal(ChargeStatus.Paid, adjustment.Status);
+        Assert.Null(adjustment.Payment);
+    }
+
     [Fact]
     public void Pay_WhenAmountMatchesPendingCharge_CreatesPaymentAndSettlesCharge()
     {
@@ -211,5 +268,15 @@ public sealed class ChargeTests
             reference: "SPEI-12345",
             notes: "August maintenance charge.",
             createdAt: new DateTimeOffset(2026, 8, 5, 15, 31, 0, TimeSpan.Zero),
+            createdBy: Guid.NewGuid());
+
+    private static Charge CreateAdjustment(decimal amount) =>
+        Charge.CreateAdjustment(
+            id: Guid.NewGuid(),
+            departmentId: Guid.NewGuid(),
+            serviceCatalogId: Guid.NewGuid(),
+            amount: amount,
+            dueDate: new DateOnly(2026, 8, 18),
+            createdAt: new DateTimeOffset(2026, 8, 18, 9, 0, 0, TimeSpan.Zero),
             createdBy: Guid.NewGuid());
 }

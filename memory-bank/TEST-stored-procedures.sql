@@ -241,10 +241,12 @@ BEGIN
 
     IF NOT EXISTS (
         SELECT 1
-          FROM charges
+         FROM charges
          WHERE id = v_adjustment_id
            AND source_type = 'Adjustment'
+           AND original_amount = 0
            AND amount = -50.00
+           AND status = 'Paid'
     ) THEN
         RAISE EXCEPTION 'TEST FAILED: cancellation adjustment is incorrect';
     END IF;

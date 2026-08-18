@@ -42,7 +42,7 @@ Reservation and Charge are independent Aggregates.
 - `Charge.Waive()` sets `Amount = 0`.
 - Charge does not query other entities or repositories.
 - Charge creation receives its amount as an input.
-- Paid Charge reversal uses a new `ChargeAdjustment`.
+- Paid Charge reversal uses a new Adjustment Charge.
 - Historical financial records are not modified to hide later events.
 - Reservation confirmation + Charge creation is atomic.
 - Reservation cannot overlap another Reservation.
@@ -55,7 +55,7 @@ Reservation and Charge are independent Aggregates.
 - Overdue begins immediately after DueDate and is not a persisted Charge state.
 - No automatic overdue surcharge rules.
 - Extraordinary Charges use ServiceCatalog.
-- ChargeAdjustment reasons/applicability are discretionary.
+- Adjustment Charge concepts/applicability are discretionary.
 - Promotions are discretionary; no promotion engine.
 - Administrative Charge cancellation is discretionary.
 - Future payment methods are out of scope.
@@ -95,7 +95,7 @@ where creator identification is relevant. Do not introduce `updated_by`, `update
 
 ## Scope Philosophy
 
-Do not automatically implement business rules for overdue surcharges, ChargeAdjustment reasons, extraordinary charges, promotions or administrative Charge cancellation. These are intentionally discretionary administrator operations.
+Do not automatically implement business rules for overdue surcharges, Adjustment Charge concepts, extraordinary charges, promotions or administrative Charge cancellation. These are intentionally discretionary administrator operations.
 
 ## Implementation Priority
 

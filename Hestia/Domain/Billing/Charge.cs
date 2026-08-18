@@ -15,6 +15,33 @@ public sealed class Charge
         ChargeOrigin origin,
         DateTimeOffset createdAt,
         Guid createdBy)
+        : this(
+            id,
+            departmentId,
+            serviceCatalogId,
+            amount,
+            amount,
+            billingPeriod,
+            dueDate,
+            origin,
+            amount == 0 ? ChargeStatus.Waived : ChargeStatus.Pending,
+            createdAt,
+            createdBy)
+    {
+    }
+
+    private Charge(
+        Guid id,
+        Guid departmentId,
+        Guid serviceCatalogId,
+        decimal originalAmount,
+        decimal amount,
+        int? billingPeriod,
+        DateOnly dueDate,
+        ChargeOrigin origin,
+        ChargeStatus status,
+        DateTimeOffset createdAt,
+        Guid createdBy)
     {
         if (id == Guid.Empty)
         {
@@ -31,11 +58,6 @@ public sealed class Charge
             throw new ArgumentException("A charge requires a service catalog identifier.", nameof(serviceCatalogId));
         }
 
-        if (amount < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(amount), amount, "Charge amount cannot be negative.");
-        }
-
         if (billingPeriod.HasValue)
         {
             BillingPeriodValidator.EnsureValid(billingPeriod.Value, nameof(billingPeriod));
@@ -48,15 +70,37 @@ public sealed class Charge
             throw new ArgumentException("A charge requires its creator identifier.", nameof(createdBy));
         }
 
+        if (origin.Type == ChargeOriginType.Adjustment)
+        {
+            if (originalAmount != 0)
+            {
+                throw new ArgumentException("An adjustment charge must have an original amount of zero.", nameof(originalAmount));
+            }
+
+            if (amount == 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(amount), amount, "An adjustment charge amount cannot be zero.");
+            }
+
+            if (status != ChargeStatus.Paid)
+            {
+                throw new ArgumentException("An adjustment charge must be created as paid.", nameof(status));
+            }
+        }
+        else if (originalAmount < 0 || amount < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(amount), amount, "Normal charge amounts cannot be negative.");
+        }
+
         Id = id;
         DepartmentId = departmentId;
         ServiceCatalogId = serviceCatalogId;
-        OriginalAmount = amount;
+        OriginalAmount = originalAmount;
         Amount = amount;
         BillingPeriod = billingPeriod;
         DueDate = dueDate;
         Origin = origin;
-        Status = amount == 0 ? ChargeStatus.Waived : ChargeStatus.Pending;
+        Status = status;
         CreatedAt = createdAt;
         CreatedBy = createdBy;
     }
@@ -84,6 +128,27 @@ public sealed class Charge
     public DateTimeOffset CreatedAt { get; }
 
     public Guid CreatedBy { get; }
+
+    public static Charge CreateAdjustment(
+        Guid id,
+        Guid departmentId,
+        Guid serviceCatalogId,
+        decimal amount,
+        DateOnly dueDate,
+        DateTimeOffset createdAt,
+        Guid createdBy) =>
+        new(
+            id,
+            departmentId,
+            serviceCatalogId,
+            originalAmount: 0,
+            amount: amount,
+            billingPeriod: null,
+            dueDate: dueDate,
+            origin: ChargeOrigin.Adjustment(),
+            status: ChargeStatus.Paid,
+            createdAt: createdAt,
+            createdBy: createdBy);
 
     public Payment Pay(
         DateTimeOffset paymentDate,

@@ -44,6 +44,9 @@ public sealed class ChargeOrigin : IEquatable<ChargeOrigin>
     public static ChargeOrigin Extraordinary() =>
         new(ChargeOriginType.Extraordinary, null, null);
 
+    public static ChargeOrigin Adjustment() =>
+        new(ChargeOriginType.Adjustment, null, null);
+
     public bool Equals(ChargeOrigin? other) =>
         other is not null
         && Type == other.Type

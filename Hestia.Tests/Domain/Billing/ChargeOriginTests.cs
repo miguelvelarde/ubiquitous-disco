@@ -40,6 +40,16 @@ public sealed class ChargeOriginTests
     }
 
     [Fact]
+    public void Adjustment_HasNoOriginReference()
+    {
+        var origin = ChargeOrigin.Adjustment();
+
+        Assert.Equal(ChargeOriginType.Adjustment, origin.Type);
+        Assert.Null(origin.RecurringServiceId);
+        Assert.Null(origin.ReservationId);
+    }
+
+    [Fact]
     public void EqualOrigins_HaveValueEquality()
     {
         var recurringServiceId = Guid.NewGuid();

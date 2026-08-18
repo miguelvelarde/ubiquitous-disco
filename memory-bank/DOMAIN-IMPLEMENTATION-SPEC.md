@@ -97,7 +97,7 @@ The Application layer coordinates operations involving multiple aggregates or ex
 Examples:
 
 - Confirm Reservation + Charge.
-- Cancel Reservation + ChargeAdjustment.
+- Cancel Reservation + Adjustment Charge.
 - Change Owner + DepartmentOwnerHistory.
 - Generate recurring Charges.
 - Register Payment.
@@ -122,7 +122,6 @@ The implementation must use the following classification.
 | RecurringService | `class` | Entity |
 | Amenity | `class` | Entity |
 | User | `class` | Entity |
-| ChargeAdjustment | `class` | Entity |
 | ChargeOrigin | `class` / immutable type | Value Object |
 | ChargeStatus | `enum` | Domain type |
 | PaymentMethod | `enum` | Domain type |
@@ -173,9 +172,11 @@ Charge must represent at least:
 
 `Amount` can only change through explicit domain behavior.
 
-A negative Charge amount is not allowed.
+A normal Charge amount cannot be negative.
 
-A zero-amount Charge is immediately considered `Waived`.
+An Adjustment Charge is the explicit exception: it has `OriginalAmount = 0` and a non-zero positive or negative `Amount`.
+
+A zero-amount normal Charge is immediately considered `Waived`.
 
 ### Status
 
@@ -219,6 +220,8 @@ Rules:
 - The resulting Charge status is `Paid`.
 - A Payment entity is created as part of the Charge Aggregate.
 
+An Adjustment Charge is not paid through this behavior. It is created directly as `Paid` without a Payment because it represents an administrative accounting effect, not a cash collection.
+
 #### Waive
 
 Rules:
@@ -237,7 +240,7 @@ Rules:
 - Status becomes `Cancelled`.
 - Historical Charge data remains intact.
 - A paid Charge is not changed to `Cancelled`.
-- Economic reversal of a paid Charge is represented through a new `ChargeAdjustment`.
+- Economic reversal of a paid Charge is represented through a new Adjustment Charge.
 
 ---
 
@@ -312,7 +315,7 @@ A Reservation can be cancelled at any time.
 
 Cancellation does not delete the Reservation.
 
-If economic compensation/reversal is required, a new `ChargeAdjustment` is created.
+If economic compensation/reversal is required, a new Adjustment Charge is created.
 
 The original Charge and Payment remain unchanged.
 
@@ -349,6 +352,7 @@ Initial origin types:
 RecurringService
 Reservation
 Extraordinary
+Adjustment
 ```
 
 The origin determines which source reference is valid.
@@ -364,6 +368,7 @@ Examples:
 RecurringService -> RecurringService reference
 Reservation      -> Reservation reference
 Extraordinary    -> no recurring/reservation origin
+Adjustment       -> no recurring/reservation origin
 ```
 
 The exact persistence representation must remain consistent with the DDL.
@@ -374,31 +379,23 @@ It must provide value-based equality.
 
 ---
 
-# 10. ChargeAdjustment
+# 10. Adjustment Charges
 
-`ChargeAdjustment` is an independent accounting record.
+An Adjustment Charge is a Charge whose origin is `Adjustment`; it is not an independent entity or Aggregate.
 
-It compensates or modifies the economic effect of an existing Charge without modifying the historical Charge itself.
+It compensates or modifies economic effects without modifying historical Charges or Payments.
 
 Example:
 
 ```text
 Charge           +1000
 Payment          +1000
-ChargeAdjustment -1000
+Adjustment Charge -1000
 ```
 
-Negative amounts are valid for compensation.
+An Adjustment Charge has `OriginalAmount = 0`, a non-zero positive or negative `Amount`, no recurring-service or reservation reference, and is created directly as `Paid` without a Payment. Its ServiceCatalog entry supplies the administrator-chosen concept.
 
-The administrator determines:
-
-- Concept.
-- Amount.
-- When the adjustment is appropriate.
-
-There is no mandatory reason catalog or automatic applicability rule in this version.
-
-ChargeAdjustment may support:
+There is no mandatory reason catalog or automatic applicability rule in this version. Adjustment Charges may support:
 
 - Reservation reversals.
 - Bonuses.
@@ -531,7 +528,7 @@ The domain must not use:
 
 Amounts must not be negative unless the specific domain record explicitly permits it.
 
-`ChargeAdjustment` is the known exception because negative adjustments are explicitly supported.
+An Adjustment Charge is the known exception because negative adjustments are explicitly supported.
 
 ---
 
@@ -563,7 +560,7 @@ Examples:
 - Reservation availability.
 - Maintenance conflicts.
 - Reservation + Charge.
-- Reservation cancellation + ChargeAdjustment.
+- Reservation cancellation + Adjustment Charge.
 - Owner change + ownership history.
 - Recurring Charge generation.
 - Registering a Payment.
@@ -718,7 +715,7 @@ Do not implement partial payment behavior.
 
 Do not modify historical Charges to represent later financial events.
 
-Use `ChargeAdjustment` when an economic correction is required.
+Create a new Adjustment Charge when an economic correction is required.
 
 ---
 
@@ -793,9 +790,9 @@ Then create unit tests for all valid and invalid state transitions.
 
 ---
 
-## Phase 3 — ChargeAdjustment
+## Phase 3 — Adjustment Charges
 
-Implement `ChargeAdjustment` and its accounting rules.
+Implement the Adjustment Charge creation factory and its accounting rules.
 
 ---
 
@@ -833,7 +830,7 @@ Implement use cases for:
 - Cancel Reservation.
 - Generate recurring Charges.
 - Change Owner.
-- Create ChargeAdjustment.
+- Create Adjustment Charge.
 
 ---
 

@@ -111,7 +111,7 @@ $$;
 
 
 -- ============================================================
--- 2. CANCEL RESERVATION + OPTIONAL CHARGE ADJUSTMENT
+-- 2. CANCEL RESERVATION + OPTIONAL ADJUSTMENT CHARGE
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION cancel_reservation(
@@ -125,7 +125,6 @@ AS $$
 DECLARE
     v_reservation reservations%ROWTYPE;
     v_adjustment_id uuid;
-    v_adjustment_status varchar(20);
 BEGIN
     IF p_adjustment_amount IS NULL THEN
         RAISE EXCEPTION 'Adjustment amount must be provided; use 0 for no adjustment';
@@ -154,10 +153,6 @@ BEGIN
     END IF;
 
     v_adjustment_id := gen_random_uuid();
-    v_adjustment_status := CASE
-        WHEN p_adjustment_amount = 0 THEN 'Waived'
-        ELSE 'Pending'
-    END;
 
     INSERT INTO charges (
         id, department_id, service_catalog_id, source_type,
@@ -166,7 +161,7 @@ BEGIN
     VALUES (
         v_adjustment_id, v_reservation.department_id,
         v_reservation.service_catalog_id, 'Adjustment',
-        0, p_adjustment_amount, CURRENT_DATE, v_adjustment_status,
+        0, p_adjustment_amount, CURRENT_DATE, 'Paid',
         p_created_by
     );
 
