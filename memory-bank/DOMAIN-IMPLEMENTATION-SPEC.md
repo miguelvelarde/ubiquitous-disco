@@ -1,35 +1,33 @@
 # Domain Implementation Specification
 
-**Version:** 0.2  
-**Status:** Draft for implementation review  
-**Date:** 2026-08-17
+**Version:** 0.3
+**Status:** Implementation baseline
+**Date:** 2026-08-20
 
 ---
 
 # 1. Purpose
 
-This document defines how the approved domain model is to be implemented in C#.
+This document defines how the approved domain model is implemented in C#.
 
-It is an implementation guide, not a replacement for `DOMAIN-MODEL.md`.
+`DOMAIN-MODEL.md` is the authority for business rules. This document defines their C# representation and implementation constraints.
 
-`DOMAIN-MODEL.md` is the authoritative source for business rules. This document defines how those rules should be represented in code.
-
-The implementation must not introduce business behavior, aggregates, value objects, abstractions, or patterns that are not justified by the approved domain model.
+The implementation must favor simplicity and pragmatic DDD. Do not introduce abstractions, entities, Value Objects, Aggregates, or Domain Events without a concrete domain requirement.
 
 ---
 
 # 2. Source Documents
 
-The implementation must be based on:
+Implementation must be based on:
 
 1. `DOMAIN-MODEL.md`
 2. `DATABASE-DESIGN.md`
-3. PostgreSQL DDL specification
+3. PostgreSQL DDL
 4. This document
 
-If a conflict exists, the approved domain rules in `DOMAIN-MODEL.md` take precedence.
+If a conflict exists, the latest approved domain decision takes precedence and the affected documentation must be updated.
 
-The C# implementation must not invent missing business rules.
+AI-assisted development must not invent missing business rules.
 
 ---
 
@@ -37,30 +35,27 @@ The C# implementation must not invent missing business rules.
 
 ## 3.1 Pragmatic DDD
 
-DDD is applied pragmatically.
+Use DDD only where it provides concrete value.
 
-Do not introduce a pattern merely because it is commonly associated with DDD.
+Do not introduce patterns solely for architectural purity.
 
-Do not introduce:
+Prefer:
 
-- Additional aggregates.
-- Value objects without domain behavior.
-- Domain events without a concrete requirement.
-- Generic abstractions.
-- Generic base entities.
-- Generic repositories inside the domain.
-
-Prefer explicit and simple domain code.
+* Simple entities.
+* Explicit domain behavior.
+* Clear invariants.
+* Simple C# types.
+* Application coordination for cross-entity operations.
 
 ---
 
 ## 3.2 Encapsulation
 
-Domain state must not be freely mutable from outside the entity.
+Domain state must not be freely mutable.
 
-Business state transitions must be expressed through domain behavior.
+Business transitions must use explicit methods.
 
-Prefer:
+For example:
 
 ```csharp
 charge.Pay(...);
@@ -68,7 +63,11 @@ charge.Waive();
 charge.Cancel();
 ```
 
-over directly assigning lifecycle state.
+instead of:
+
+```csharp
+charge.Status = ChargeStatus.Paid;
+```
 
 ---
 
@@ -76,386 +75,434 @@ over directly assigning lifecycle state.
 
 The Domain layer must not depend on:
 
-- PostgreSQL.
-- Entity Framework Core.
-- `DbContext`.
-- SQL.
-- Stored procedures.
-- Repository implementations.
-- HTTP.
-- UI.
-- Authentication infrastructure.
+* PostgreSQL.
+* Entity Framework Core.
+* `DbContext`.
+* SQL.
+* Stored procedures.
+* Repository implementations.
+* HTTP.
+* UI.
 
-Domain objects must be usable without a database.
+Domain behavior must be testable without a database.
 
 ---
 
 ## 3.4 Application coordination
 
-The Application layer coordinates operations involving multiple aggregates or external state.
+Operations requiring multiple entities, persistence queries, or transactions are coordinated by the Application layer.
 
 Examples:
 
-- Confirm Reservation + Charge.
-- Cancel Reservation + Adjustment Charge.
-- Change Owner + DepartmentOwnerHistory.
-- Generate recurring Charges.
-- Register Payment.
+* Register Payment.
+* Generate recurring Charges.
+* Create Reservation.
+* Cancel Reservation.
+* Change Owner.
+* Create an Adjustment Charge.
 
-The application layer must not bypass aggregate invariants.
+Domain entities must not query repositories.
 
 ---
 
 # 4. Domain Types and Classification
 
-The implementation must use the following classification.
+| Type                   | C# representation | Classification                  |
+| ---------------------- | ----------------- | ------------------------------- |
+| Charge                 | `class`           | Aggregate Root                  |
+| Payment                | `class`           | Entity inside Charge Aggregate  |
+| Reservation            | `class`           | Aggregate Root                  |
+| Department             | `class`           | Entity                          |
+| Owner                  | `class`           | Entity                          |
+| DepartmentOwnerHistory | `class`           | Entity                          |
+| Service                | `class`           | Entity                          |
+| DepartmentService      | relationship      | Association                     |
+| User                   | `class`           | Entity                          |
+| ChargeStatus           | `enum`            | Domain enum                     |
+| PaymentMethod          | `enum`            | Domain enum                     |
+| ServiceType            | `enum`            | Domain enum                     |
+| BillingPeriod          | `int`             | Primitive domain representation |
+| Money                  | `decimal`         | Primitive domain representation |
 
-| Type | C# representation | Classification |
-|---|---|---|
-| Charge | `class` | Aggregate Root |
-| Payment | `class` | Entity inside Charge Aggregate |
-| Reservation | `class` | Aggregate Root |
-| Department | `class` | Entity |
-| Owner | `class` | Entity |
-| DepartmentOwnerHistory | `class` | Entity |
-| ServiceCatalog | `class` | Entity |
-| RecurringService | `class` | Entity |
-| Amenity | `class` | Entity |
-| User | `class` | Entity |
-| ChargeOrigin | `class` / immutable type | Value Object |
-| ChargeStatus | `enum` | Domain type |
-| ReservationStatus | `enum` | Domain type |
-| PaymentMethod | `enum` | Domain type |
-| BillingPeriod | `int` | Primitive domain representation |
-| Money | `decimal` | Primitive domain representation |
+There is no `ChargeOrigin` Value Object in the current model.
 
-`Money`, `BillingPeriod`, and `PaymentMethod` must not be implemented as Value Objects in this version.
+There are no separate domain entities for:
+
+* `RecurringService`
+* `Amenity`
+* `ChargeAdjustment`
 
 ---
 
-# 5. Entities
+# 5. Service
 
-Only domain-relevant properties and behavior should be exposed publicly.
+`Service` represents a concept that may be charged, associated with a Department, reserved, or used for accounting adjustments.
 
-Exact property names must remain consistent with the database design unless there is a documented domain reason to differ.
+It replaces the previous `ServiceCatalog` concept.
 
-## 5.1 Charge
+A Service contains domain information including:
 
-`Charge` is the Aggregate Root of the Charge Aggregate.
+* Id.
+* Name.
+* Description.
+* Type.
+* DefaultAmount.
+* IsReservable.
+* Active state where applicable.
 
-The aggregate contains:
+## 5.1 ServiceType
+
+`ServiceType` is represented as:
+
+```csharp
+public enum ServiceType
+{
+    Recurring,
+    Event,
+    Extraordinary,
+    Adjustment
+}
+```
+
+### Recurring
+
+A recurring Service may be associated permanently with Departments through `DepartmentService`.
+
+Those associations are used to generate recurring Charges.
+
+### Event
+
+Represents an event-related or individually used service.
+
+It may also be reservable when `IsReservable` is true.
+
+### Extraordinary
+
+Represents a discretionary non-recurring charge concept.
+
+### Adjustment
+
+Represents an accounting adjustment.
+
+An Adjustment does not have a separate entity or table.
+
+It is represented by a normal `Charge` referencing a Service whose type is `Adjustment`.
+
+Adjustment Charges may have negative amounts.
+
+---
+
+## 5.2 DefaultAmount
+
+Money is represented as:
+
+```csharp
+decimal
+```
+
+`Service.DefaultAmount` is the current amount associated with the Service.
+
+For normal Services, the amount cannot be negative.
+
+An Adjustment Service may result in a negative Charge amount.
+
+Changing `DefaultAmount` affects only Charges created after the change.
+
+Historical Charges must never be recalculated.
+
+---
+
+## 5.3 Reservable Services
+
+`Service.IsReservable` determines whether the Service can be used in a Reservation.
+
+Examples:
+
+```text
+Maintenance payment     -> IsReservable = false
+Use of swimming pool    -> IsReservable = true
+Use of clubhouse        -> IsReservable = true
+Accounting adjustment   -> IsReservable = false
+```
+
+Reservation availability is determined using the reservable Service identity.
+
+---
+
+# 6. DepartmentService
+
+`DepartmentService` represents the current association between a Department and a Service.
+
+Conceptually:
+
+```text
+Department <-> Service
+```
+
+It exists only to identify which Services a Department currently receives.
+
+Its persistence identity is the composite key:
+
+```text
+DepartmentId + ServiceId
+```
+
+It does not require:
+
+* Independent Id.
+* Amount.
+* CreatedAt.
+* CreatedBy.
+* StartDate.
+* EndDate.
+* IsActive.
+* Historical tracking.
+
+The Service amount remains in `Service.DefaultAmount`.
+
+Removing a `DepartmentService` association means the Department no longer receives that Service for future operations.
+
+Historical Charges remain unchanged.
+
+For recurring Services, `DepartmentService` is the source used to determine which Departments receive recurring Charges.
+
+---
+
+# 7. Charge Aggregate
+
+The Charge Aggregate is:
 
 ```text
 Charge
 └── Payment*
 ```
 
-`Payment` is an entity owned by the Charge Aggregate.
+`Charge` is the Aggregate Root.
 
-### Required domain state
+`Payment` is an Entity inside the Aggregate.
 
-Charge must represent at least:
+`Charge` references:
 
-- Id.
-- Department.
-- OriginalAmount.
-- Amount.
-- BillingPeriod when applicable.
-- DueDate.
-- Origin.
-- Status.
-- Payment when present.
-- Creation information.
+* DepartmentId.
+* ServiceId.
 
-### Amount rules
+Charge does not contain or reference:
+
+* Reservation.
+* RecurringService.
+* ChargeOrigin.
+* ChargeAdjustment.
+
+The Service associated with the Charge provides the business concept represented by that Charge.
+
+---
+
+# 8. Charge
+
+A Charge represents a financial movement associated with a Department and Service.
+
+Required domain state includes:
+
+* Id.
+* DepartmentId.
+* ServiceId.
+* BillingPeriod.
+* OriginalAmount.
+* Amount.
+* DueDate.
+* Status.
+* Payment when present.
+* Creation information.
+
+## 8.1 Amounts
+
+Money uses:
+
+```csharp
+decimal
+```
 
 `OriginalAmount` is immutable after creation.
 
-`Amount` can only change through explicit domain behavior.
+`Amount` changes only through explicit domain behavior.
 
-A normal Charge amount cannot be negative.
-
-An Adjustment Charge is the explicit exception: it has `OriginalAmount = 0` and a non-zero positive or negative `Amount`.
-
-A zero-amount normal Charge is immediately considered `Waived`.
-
-### Status
-
-```csharp
-Pending
-Paid
-Waived
-Cancelled
-```
-
-Valid transitions:
+For normal Charges:
 
 ```text
-Pending -> Paid
-Pending -> Waived
-Pending -> Cancelled
+Amount >= 0
+```
+
+Adjustment Charges may have negative amounts.
+
+A normal zero-amount Charge is considered `Waived`.
+
+---
+
+## 8.2 ChargeStatus
+
+```csharp
+public enum ChargeStatus
+{
+    Pending,
+    Paid,
+    Waived,
+    Cancelled
+}
+```
+
+For normal Charges:
+
+```text
+Pending
+  ├── Paid
+  ├── Waived
+  └── Cancelled
 ```
 
 `Paid`, `Waived`, and `Cancelled` are terminal.
 
-No other transitions are valid.
+No partial payments are supported.
 
-### Behavior
+Adjustment Charges are created directly as `Paid`.
 
-Charge must expose behavior for:
-
-```csharp
-Pay(...)
-Waive()
-Cancel()
-```
-
-#### Pay
-
-Rules:
-
-- Charge must be `Pending`.
-- Payment must equal the current `Amount`.
-- Partial payment is forbidden.
-- A second payment is forbidden.
-- The resulting Charge status is `Paid`.
-- A Payment entity is created as part of the Charge Aggregate.
-
-An Adjustment Charge is not paid through this behavior. It is created directly as `Paid` without a Payment because it represents an administrative accounting effect, not a cash collection.
-
-#### Waive
-
-Rules:
-
-- Charge must be `Pending`.
-- `OriginalAmount` does not change.
-- `Amount` becomes `0`.
-- Status becomes `Waived`.
-- No Payment is created.
-
-#### Cancel
-
-Rules:
-
-- Charge must be `Pending`.
-- Status becomes `Cancelled`.
-- Historical Charge data remains intact.
-- A paid Charge is not changed to `Cancelled`.
-- Economic reversal of a paid Charge is represented through a new Adjustment Charge.
+They do not transition through `Pending`.
 
 ---
 
-# 6. Payment
+## 8.3 Charge.Pay()
 
-`Payment` is an Entity inside the Charge Aggregate.
+`Pay()` applies only to a normal pending Charge.
 
-It must not be implemented as an independent Aggregate Root.
+Rules:
 
-Required fields:
+* Charge must be `Pending`.
+* Payment amount must equal the current Charge amount.
+* Partial payments are forbidden.
+* A Charge cannot be paid more than once.
+* A Payment entity is created within the Charge Aggregate.
+* Charge status becomes `Paid`.
 
-- Id.
-- ChargeId.
-- PaymentDate.
-- Amount.
-- PaymentMethod.
-- Reference.
-- Notes.
-- CreatedAt.
-- CreatedBy.
-
-All are mandatory according to the domain model.
-
-### Payment methods
-
-```csharp
-Cash
-Card
-Transfer
-Other
-```
-
-`Reference` is administrator-provided free text.
-
-`Payment.Amount` must correspond to the current Charge amount when the payment is registered.
-
-A Charge cannot contain multiple payments.
-
-The implementation must prevent creation of a Payment that violates Charge invariants.
+Adjustment Charges created directly as `Paid` do not require a Payment.
 
 ---
 
-# 7. Reservation
+## 8.4 Charge.Waive()
 
-`Reservation` is an Aggregate Root.
+Rules:
 
-Its lifecycle is:
+* Charge must be `Pending`.
+* `OriginalAmount` remains unchanged.
+* `Amount` becomes zero.
+* Status becomes `Waived`.
+* No Payment is created.
+
+---
+
+## 8.5 Charge.Cancel()
+
+Administrative cancellation is allowed from `Pending`.
+
+The resulting state is:
 
 ```text
-Confirmed -> Cancelled
+Cancelled
 ```
 
-There is no practical `Pending` state.
+A cancelled Charge is not deleted.
 
-`ReservationStatus` is represented as an enum with only `Confirmed` and `Cancelled` values. The `Reservation` entity enforces its valid transition.
+A paid Charge is not changed to `Cancelled`.
 
-### Confirmation
+If an economic correction is required after payment, a new Adjustment Charge is created instead of modifying the historical Charge.
 
-Confirmation must result in a valid Reservation.
+---
 
-When a Charge is created as part of confirmation:
+# 9. Adjustment Charges
 
-- Reservation and Charge are independent aggregates.
-- Charge receives the amount as input.
-- Charge does not calculate the reservation amount.
-- Charge does not query Reservation, Amenity, ServiceCatalog, or other entities.
-- Confirmation and Charge creation are one application transaction.
+There is no `ChargeAdjustment` entity.
 
-The amount may have been calculated by the application layer or by the persistence operation according to the selected implementation.
+An accounting adjustment is represented as:
 
-### Cancellation
+```text
+Service.Type = Adjustment
+        +
+Charge
+```
 
-A Reservation can be cancelled at any time.
+Examples:
 
-Cancellation does not delete the Reservation.
+```text
+Maintenance Charge       +1000
+Payment                   +1000
+Adjustment Charge         -1000
+```
 
-If economic compensation/reversal is required, a new Adjustment Charge is created.
+Adjustment rules:
+
+* Amount may be positive or negative.
+* The administrator decides when to create it.
+* There is no mandatory reason catalog.
+* There are no automatic applicability rules.
+* It may represent refunds, compensation, bonuses, or other discretionary adjustments.
+* It is created directly with `Paid` status.
+* It does not require a Payment.
+* `BillingPeriod` is mandatory.
+* The default BillingPeriod is the current billing period.
 
 The original Charge and Payment remain unchanged.
 
 ---
 
-# 8. Reservation Availability
+# 10. Payment
 
-Availability is not an invariant that `Reservation` can validate independently.
+`Payment` is an Entity inside the Charge Aggregate.
 
-A new Reservation cannot overlap an existing Reservation.
+It is not an independent Aggregate Root.
 
-Maintenance is represented by a Reservation using a maintenance `ServiceCatalog` entry.
+Required fields:
 
-Therefore the same overlap rule applies to:
+* Id.
+* ChargeId.
+* PaymentDate.
+* Amount.
+* PaymentMethod.
+* Reference.
+* Notes.
+* CreatedAt.
+* CreatedBy.
 
-- Ordinary reservations.
-- Maintenance reservations.
+The payment settles one complete Charge.
 
-The first existing record has priority.
+Partial payments are not supported.
 
-Availability validation must be coordinated by the Application/Persistence layers.
-
-`Reservation` must not inject or call a repository to check availability.
+A Charge can have at most one Payment.
 
 ---
 
-# 9. ChargeOrigin
+## 10.1 PaymentMethod
 
-`ChargeOrigin` is a Value Object.
-
-Initial origin types:
-
-```text
-RecurringService
-Reservation
-Extraordinary
-Adjustment
+```csharp
+public enum PaymentMethod
+{
+    Cash,
+    Card,
+    Transfer,
+    Other
+}
 ```
 
-The origin determines which source reference is valid.
+`PaymentMethod` is not a Value Object.
 
-The implementation must preserve the consistency between:
+---
 
-- Origin type.
-- Origin reference.
+# 11. BillingPeriod
 
-Examples:
+`BillingPeriod` is represented as:
 
-```text
-RecurringService -> RecurringService reference
-Reservation      -> Reservation reference
-Extraordinary    -> no recurring/reservation origin
-Adjustment       -> no recurring/reservation origin
+```csharp
+int
 ```
 
-The exact persistence representation must remain consistent with the DDL.
-
-`ChargeOrigin` must be immutable.
-
-It must provide value-based equality.
-
----
-
-# 10. Adjustment Charges
-
-An Adjustment Charge is a Charge whose origin is `Adjustment`; it is not an independent entity or Aggregate.
-
-It compensates or modifies economic effects without modifying historical Charges or Payments.
-
-Example:
-
-```text
-Charge           +1000
-Payment          +1000
-Adjustment Charge -1000
-```
-
-An Adjustment Charge has `OriginalAmount = 0`, a non-zero positive or negative `Amount`, no recurring-service or reservation reference, and is created directly as `Paid` without a Payment. Its ServiceCatalog entry supplies the administrator-chosen concept.
-
-There is no mandatory reason catalog or automatic applicability rule in this version. Adjustment Charges may support:
-
-- Reservation reversals.
-- Bonuses.
-- Other discretionary adjustments.
-
----
-
-# 11. RecurringService
-
-`RecurringService` represents that a Department receives a ServiceCatalog service on a recurring basis.
-
-It is not an Aggregate Root.
-
-Its `StartDate` belongs to the service relationship.
-
-Recurring charge generation must:
-
-- Use the applicable ServiceCatalog amount.
-- Generate a full billing month.
-- Never prorate.
-- Use `BillingPeriod` in `YYYYMM` format.
-- Prevent duplicate Charges for the same `RecurringService + BillingPeriod`.
-
-Stopping future charges does not require a historical active/inactive timeline.
-
-If a recurring service is no longer used for future generation, it simply stops participating in future charge generation.
-
----
-
-# 12. ServiceCatalog
-
-`ServiceCatalog` represents a chargeable service/concept.
-
-It contains `DefaultAmount`.
-
-It may represent:
-
-- Recurring services.
-- Amenity/service charges.
-- Extraordinary charges.
-- Optional administrator-defined services such as surcharges.
-
-`DefaultAmount` cannot be negative.
-
-Tariff changes affect only future Charges.
-
-Existing Charges must never be recalculated because the catalog amount changed.
-
-Tariff-change history is out of scope.
-
----
-
-# 13. BillingPeriod
-
-`BillingPeriod` is represented as an `int`.
-
-Format:
+using:
 
 ```text
 YYYYMM
@@ -468,166 +515,291 @@ Examples:
 202701
 ```
 
-The implementation must validate that the value represents a valid year and month.
+It is not a Value Object.
 
-It must not contain a day component.
+BillingPeriod must represent a valid year and month.
 
-No `DateTime`, `DateOnly`, or Value Object is required for `BillingPeriod` in this version.
+It is mandatory for every Charge.
 
-If helper methods are required, they must not turn `BillingPeriod` into a separate domain abstraction without a concrete requirement.
+When no period is explicitly supplied, the current billing period is used.
+
+No day component exists.
+
+BillingPeriod must not be represented as `DateTime` or `DateOnly`.
+
+Helper/validation logic may operate on the integer without introducing a `BillingPeriod` Value Object.
 
 ---
 
-# 14. ChargeStatus
+# 12. Recurring Charge Generation
 
-`ChargeStatus` should be represented as an enum.
+There is no `RecurringService` entity.
 
-```csharp
-public enum ChargeStatus
-{
-    Pending,
-    Paid,
-    Waived,
-    Cancelled
-}
+Recurring generation uses:
+
+```text
+DepartmentService
+        +
+Service.Type = Recurring
+        ↓
+Charge
 ```
 
-Enum values must not be used to infer lifecycle transitions automatically.
+For each applicable association:
 
-The `Charge` entity is responsible for enforcing valid transitions.
+1. Read the associated Service.
+2. Use `Service.DefaultAmount`.
+3. Create the Charge for the requested BillingPeriod.
+4. Preserve the amount in the created Charge.
 
----
+There is no proration.
 
-# 15. PaymentMethod
+Changing `Service.DefaultAmount` affects only future Charges.
 
-`PaymentMethod` should be represented as an enum.
+Removing a row from `DepartmentService` prevents that Service from participating in future recurring generation for that Department.
 
-```csharp
-public enum PaymentMethod
-{
-    Cash,
-    Card,
-    Transfer,
-    Other
-}
+Recurring generation must be idempotent.
+
+At most one recurring Charge should be generated for the same:
+
+```text
+Department + Service + BillingPeriod
 ```
 
-It is not a Value Object in this version.
+The implementation must preserve this rule without preventing legitimate multiple non-recurring Charges for the same Department, Service, and BillingPeriod.
+
+The final integrity strategy may therefore be implemented by the recurring-generation persistence operation rather than a global unique constraint over all Charges.
 
 ---
 
-# 16. Money
+# 13. Reservation Aggregate
 
-Money is represented using:
+`Reservation` is an Aggregate Root independent from Billing.
 
-```csharp
-decimal
+There is no `Amenity` entity.
+
+Reservation references:
+
+* DepartmentId.
+* ServiceId.
+
+The referenced Service represents the reservable resource.
+
+The Service must have:
+
+```text
+IsReservable = true
 ```
 
-The domain must not use:
+Reservation does not reference:
 
-- `double`.
-- `float`.
+* Charge.
+* Payment.
+* Amenity.
 
-Amounts must not be negative unless the specific domain record explicitly permits it.
-
-An Adjustment Charge is the known exception because negative adjustments are explicitly supported.
+Billing and reservations remain separate concerns.
 
 ---
 
-# 17. Validation Responsibility
+## 13.1 Reservation lifecycle
 
-## 17.1 Domain
+The lifecycle is:
 
-The Domain layer validates rules that can be determined from the entity or aggregate itself.
+```text
+Confirmed -> Cancelled
+```
+
+There is no practical `Pending` state.
+
+A Reservation is initially created as `Confirmed`.
+
+Cancellation does not delete the historical Reservation.
+
+---
+
+## 13.2 Administrative reservations
+
+Every Reservation has a DepartmentId.
+
+Administrative blocks such as:
+
+* Maintenance.
+* Repairs.
+* Administrative use.
+* Other temporary blocks.
+
+use the default Department reserved for condominium administration.
+
+`DepartmentId` is therefore not nullable.
+
+No special Maintenance entity or reservation type is required.
+
+Notes may be used to describe the administrative reason.
+
+---
+
+# 14. Reservation Availability
+
+A Reservation cannot overlap another active Reservation for the same Service.
+
+The conflict rule is:
+
+```text
+same ServiceId
++
+overlapping date/time period
++
+existing Reservation is not Cancelled
+```
+
+The same rule applies to:
+
+* Resident reservations.
+* Administrative reservations.
+* Maintenance blocks.
+
+This validation requires information about other Reservations and therefore does not belong inside the Reservation entity querying a repository.
+
+The Application/Persistence layers coordinate availability validation.
+
+---
+
+# 15. Department, Owner and Ownership History
+
+`Department` and `Owner` are Entities.
+
+Changing ownership must not modify historical Charges or Payments.
+
+Ownership changes are recorded through `DepartmentOwnerHistory`.
+
+The current ownership record may have:
+
+```text
+EndDate = null
+```
+
+Historical ownership records must be preserved.
+
+The system also contains a default Department representing condominium administration for operations that require a Department identity, including administrative Reservations.
+
+---
+
+# 16. Validation Responsibility
+
+## 16.1 Domain
+
+The Domain layer validates rules that can be determined from the entity or Aggregate itself.
 
 Examples:
 
-- Charge lifecycle transitions.
-- Payment amount matching Charge amount.
-- No partial payments.
-- No duplicate payment.
-- Charge amount rules.
-- ChargeOrigin validity.
-- BillingPeriod validity.
-- Required state for domain behavior.
+* Charge lifecycle.
+* Payment amount.
+* No partial payments.
+* No duplicate Payment inside Charge.
+* Charge amount rules.
+* Adjustment Charge rules.
+* BillingPeriod format.
+* Reservation date range.
+* Service amount rules.
 
 ---
 
-## 17.2 Application
+## 16.2 Application
 
-The Application layer coordinates rules requiring other aggregates or external state.
+The Application layer coordinates rules requiring external state or multiple domain objects.
 
 Examples:
 
-- Reservation availability.
-- Maintenance conflicts.
-- Reservation + Charge.
-- Reservation cancellation + Adjustment Charge.
-- Owner change + ownership history.
-- Recurring Charge generation.
-- Registering a Payment.
+* Confirming that a Service is reservable.
+* Reservation overlap validation.
+* Register Payment.
+* Generate recurring Charges.
+* Create Adjustment Charge.
+* Change Owner.
 
 ---
 
-## 17.3 Persistence / Database
+## 16.3 Persistence / Database
 
-Persistence is responsible for database integrity guarantees.
+Persistence provides final integrity guarantees where appropriate.
 
 Examples:
 
-- Primary keys.
-- Foreign keys.
-- Unique constraints.
-- Check constraints.
-- Required columns.
-- Numeric precision.
-- One Payment per Charge.
-- Recurring Charge idempotency.
+* Primary keys.
+* Foreign keys.
+* Composite DepartmentService key.
+* Unique Payment per Charge.
+* Check constraints.
+* Numeric precision.
+* Reservation overlap protection.
+* Recurring generation idempotency.
 
 Database constraints complement domain validation.
 
 ---
 
-# 18. C# Conventions
+# 17. C# Conventions
 
-## 18.1 IDs
+## 17.1 IDs
 
-Entity IDs use:
+Entity identifiers use:
 
 ```csharp
 Guid
 ```
 
-IDs are immutable after entity creation.
+IDs are immutable after creation.
+
+`DepartmentService` does not have an independent Guid because its identity is:
+
+```text
+DepartmentId + ServiceId
+```
 
 ---
 
-## 18.2 Nullability
+## 17.2 Money
+
+Money uses:
+
+```csharp
+decimal
+```
+
+Do not use:
+
+```csharp
+float
+double
+```
+
+for monetary values.
+
+---
+
+## 17.3 Nullability
 
 Nullable reference types must be enabled.
 
 Required domain properties should not be nullable.
 
-Do not use the null-forgiving operator merely to suppress compiler warnings.
+Do not use the null-forgiving operator merely to suppress initialization warnings.
 
 ---
 
-## 18.3 Constructors
+## 17.4 Constructors
 
-Constructors must establish required state.
+Constructors must establish valid required state.
 
-Prefer constructors with required parameters.
+Avoid constructors that allow invalid domain objects to be created.
 
-Do not expose unrestricted public constructors if they allow creation of invalid domain objects.
-
-A persistence-required constructor may exist with restricted accessibility when necessary.
+Persistence-specific constructors may use restricted accessibility when required.
 
 ---
 
-## 18.4 Setters
+## 17.5 Setters
 
-Avoid public setters for domain state.
+Business state must not expose unrestricted public setters.
 
 Prefer:
 
@@ -635,21 +807,15 @@ Prefer:
 public ChargeStatus Status { get; private set; }
 ```
 
-and explicit behavior:
-
-```csharp
-charge.Pay(...);
-charge.Waive();
-charge.Cancel();
-```
+and explicit behavior.
 
 ---
 
-## 18.5 Collections
+## 17.6 Collections
 
-Aggregate-owned collections must not be exposed as mutable collections.
+Aggregate-owned collections must not expose unrestricted mutation.
 
-Prefer:
+For example:
 
 ```csharp
 private readonly List<Payment> _payments = [];
@@ -657,145 +823,92 @@ private readonly List<Payment> _payments = [];
 public IReadOnlyCollection<Payment> Payments => _payments;
 ```
 
-When appropriate, modifications must be performed through aggregate behavior.
-
 ---
 
-## 18.6 Dates
+## 17.7 Dates
 
-Use the type that represents the domain meaning:
+Use:
 
-- `DateOnly` for date-only values.
-- `DateTime` or `DateTimeOffset` only when time information is meaningful.
+* `DateOnly` for date-only concepts.
+* `DateTime` / `DateTimeOffset` where time is meaningful.
+
+Reservation start/end values include time.
 
 `BillingPeriod` remains an `int`.
 
 ---
 
-# 19. Explicitly Forbidden Patterns
+# 18. Explicitly Forbidden Patterns
 
-The following are not permitted without a new architectural decision.
+Do not introduce the following without a new approved design decision:
 
-## 19.1 Repository access from entities
+* `ChargeOrigin`.
+* `RecurringService`.
+* `Amenity`.
+* `ChargeAdjustment` entity/table.
+* Repository access from domain entities.
+* `DbContext` inside the Domain layer.
+* SQL or stored procedure calls inside domain entities.
+* Public mutation of business state.
+* Partial payments.
+* Automatic proration.
+* `Overdue` as a persisted Charge status.
+* Automatic overdue surcharge rules.
+* Generic Aggregate base classes without a concrete requirement.
+* Generic Entity base classes without a concrete requirement.
+* Domain Events without a requirement.
+* Value Objects without independent domain behavior.
+* A direct Reservation → Payment relationship.
+* A required Reservation → Charge relationship.
 
-```csharp
-public class Reservation
-{
-    // Forbidden:
-    // IRepository<Reservation> repository;
-}
-```
-
-Entities must not query repositories.
-
----
-
-## 19.2 DbContext inside domain
-
-Domain entities must not depend on Entity Framework Core or `DbContext`.
-
----
-
-## 19.3 SQL inside domain
-
-No SQL, stored procedure calls, or database commands belong in the Domain layer.
+Historical financial records must not be modified to hide later financial events.
 
 ---
 
-## 19.4 Arbitrary public mutation
+# 19. Implementation Order
 
-Do not expose unrestricted setters for business state.
-
----
-
-## 19.5 Partial payments
-
-Do not implement partial payment behavior.
-
----
-
-## 19.6 Mutable financial history
-
-Do not modify historical Charges to represent later financial events.
-
-Create a new Adjustment Charge when an economic correction is required.
-
----
-
-## 19.7 Automatic overdue state
-
-Do not add:
-
-```text
-Overdue
-```
-
-to `ChargeStatus`.
-
-Overdue is determined from `DueDate`.
-
----
-
-## 19.8 Automatic overdue surcharge
-
-Do not implement an automatic overdue surcharge rule.
-
-If the administrator needs a surcharge, it is handled as a discretionary service/charge according to the approved domain rules.
-
----
-
-## 19.9 Automatic proration
-
-Do not prorate recurring Charges.
-
----
-
-## 19.10 Unnecessary DDD abstractions
-
-Do not introduce:
-
-- Generic aggregate base classes.
-- Generic entity base classes without a concrete need.
-- Domain events without a requirement.
-- Value Objects without domain behavior.
-- Specification patterns without a concrete use case.
-- Domain services merely to move code out of entities.
-
----
-
-# 20. Implementation Order
-
-Implementation should proceed incrementally.
-
-## Phase 1 — Domain types
+## Phase 1 — Domain enums and helpers
 
 Implement:
 
 1. `ChargeStatus`.
 2. `PaymentMethod`.
-3. `ChargeOrigin`.
-4. Billing period validation/helpers using `int`.
+3. `ServiceType`.
+4. `int`-based BillingPeriod validation/helper logic.
+
+`ChargeOrigin` must not be implemented.
 
 ---
 
-## Phase 2 — Charge Aggregate
+## Phase 2 — Service model
+
+Implement:
+
+1. `Service`.
+2. `DepartmentService`.
+
+Validate:
+
+* Service type.
+* Default amount.
+* Reservability.
+* Department-Service association.
+
+---
+
+## Phase 3 — Charge Aggregate
 
 Implement:
 
 1. `Charge`.
 2. `Payment`.
-3. Charge creation rules.
-4. `Pay()`.
-5. `Waive()`.
-6. `Cancel()`.
+3. Normal Charge creation.
+4. Adjustment Charge creation.
+5. `Pay()`.
+6. `Waive()`.
+7. `Cancel()`.
 
-Then create unit tests for all valid and invalid state transitions.
-
----
-
-## Phase 3 — Adjustment Charges
-
-Implement the Adjustment Charge creation factory and its accounting rules.
+Then implement unit tests for valid and invalid transitions.
 
 ---
 
@@ -804,9 +917,11 @@ Implement the Adjustment Charge creation factory and its accounting rules.
 Implement:
 
 1. `Reservation`.
-2. Confirmation.
+2. Confirmation-at-creation.
 3. Cancellation.
-4. Application coordination with Charge.
+4. Reservation date validation.
+
+Availability checks remain outside the Aggregate because they require existing Reservation data.
 
 ---
 
@@ -817,10 +932,7 @@ Implement:
 1. `Department`.
 2. `Owner`.
 3. `DepartmentOwnerHistory`.
-4. `ServiceCatalog`.
-5. `RecurringService`.
-6. `Amenity`.
-7. `User`.
+4. `User`.
 
 ---
 
@@ -828,58 +940,44 @@ Implement:
 
 Implement use cases for:
 
-- Register Payment.
-- Confirm Reservation.
-- Cancel Reservation.
-- Generate recurring Charges.
-- Change Owner.
-- Create Adjustment Charge.
+* Register Payment.
+* Generate recurring Charges.
+* Create Adjustment Charge.
+* Create Reservation.
+* Cancel Reservation.
+* Change Owner.
 
 ---
 
 ## Phase 7 — Persistence
 
-Implement PostgreSQL persistence according to the approved DDL and database design.
+Implement PostgreSQL persistence according to the approved DDL.
 
-Persistence must conform to the domain model rather than changing domain behavior to match database convenience.
-
----
-
-## Phase 8 — Integration
-
-Connect:
-
-- Domain.
-- Application.
-- Persistence.
-- Authorization.
-
-Server-side authorization must enforce:
-
-```text
-Admin     -> Commands + Queries
-ReadOnly  -> Queries only
-```
+Persistence must not change domain behavior merely for database convenience.
 
 ---
 
-# 21. Implementation Rule for AI-Assisted Development
+# 20. AI-Assisted Development Rules
 
-When generating or modifying domain code, AI-assisted tools must follow these rules:
+When generating or modifying domain code:
 
-1. Treat `DOMAIN-MODEL.md` as the authoritative business specification.
+1. Treat `DOMAIN-MODEL.md` as the business-rule authority.
 2. Treat this document as the C# implementation specification.
 3. Do not invent missing business rules.
-4. Do not introduce new aggregates without explicit approval.
-5. Do not introduce new Value Objects without explicit approval.
-6. Do not add persistence dependencies to the Domain layer.
-7. Do not add partial-payment behavior.
-8. Do not add an `Overdue` Charge state.
-9. Do not add automatic overdue surcharges.
-10. Do not add automatic proration.
-11. Do not modify historical Charges to represent later financial events.
-12. Prefer explicit domain behavior over direct state mutation.
-13. When a requirement is ambiguous or missing, stop and request clarification rather than guessing.
+4. Prefer the simplest implementation satisfying the documented requirements.
+5. Do not introduce `ChargeOrigin`.
+6. Do not introduce `RecurringService`.
+7. Do not introduce `Amenity`.
+8. Do not introduce a `ChargeAdjustment` entity.
+9. Represent adjustments as Charges associated with an `Adjustment` Service.
+10. Do not couple Reservation to Payment.
+11. Do not require Reservation to reference Charge.
+12. Do not introduce partial payments.
+13. Do not introduce automatic proration.
+14. Do not introduce an `Overdue` Charge state.
+15. Do not add persistence dependencies to the Domain layer.
+16. Do not introduce new Aggregates or Value Objects without explicit approval.
+17. When a business decision is not specified, request clarification rather than guessing.
 
 ---
 

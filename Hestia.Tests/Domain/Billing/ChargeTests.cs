@@ -39,6 +39,40 @@ public sealed class ChargeTests
     }
 
     [Fact]
+    public void CreateAdjustment_WhenAmountIsNonZero_CreatesPaidAdjustmentWithoutPayment()
+    {
+        var charge = Charge.CreateAdjustment(
+            id: Guid.NewGuid(),
+            departmentId: Guid.NewGuid(),
+            serviceId: Guid.NewGuid(),
+            amount: -250.00m,
+            dueDate: new DateOnly(2026, 8, 10),
+            billingPeriod: 202608,
+            createdAt: new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.Zero),
+            createdBy: Guid.NewGuid());
+
+        Assert.Equal(ServiceType.Adjustment, charge.ServiceType);
+        Assert.Equal(0m, charge.OriginalAmount);
+        Assert.Equal(-250.00m, charge.Amount);
+        Assert.Equal(ChargeStatus.Paid, charge.Status);
+        Assert.Null(charge.Payment);
+    }
+
+    [Fact]
+    public void CreateAdjustment_WhenAmountIsZero_ThrowsArgumentOutOfRangeException()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => Charge.CreateAdjustment(
+            id: Guid.NewGuid(),
+            departmentId: Guid.NewGuid(),
+            serviceId: Guid.NewGuid(),
+            amount: 0m,
+            dueDate: new DateOnly(2026, 8, 10),
+            billingPeriod: 202608,
+            createdAt: new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.Zero),
+            createdBy: Guid.NewGuid()));
+    }
+
+    [Fact]
     public void Pay_WhenAmountMatchesPendingCharge_CreatesPaymentAndSettlesCharge()
     {
         var charge = CreateCharge(amount: 250.00m);

@@ -60,6 +60,20 @@ public sealed class ReservationTests
     }
 
     [Fact]
+    public void Constructor_WhenCreatedByIsEmpty_ThrowsArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => CreateReservation(createdBy: Guid.Empty));
+    }
+
+    [Fact]
+    public void Constructor_WhenNotesAreBlank_UsesDefaultNotes()
+    {
+        var reservation = CreateReservation(notes: " ");
+
+        Assert.Equal("Sin notas", reservation.Notes);
+    }
+
+    [Fact]
     public void Cancel_WhenReservationIsConfirmed_SetsCancelled()
     {
         var reservation = CreateReservation();
@@ -83,14 +97,16 @@ public sealed class ReservationTests
     private static Reservation CreateReservation(
         DateTimeOffset? startDateTime = null,
         DateTimeOffset? endDateTime = null,
-        Guid? serviceId = null) =>
+        Guid? serviceId = null,
+        Guid? createdBy = null,
+        string? notes = null) =>
         new(
             id: Guid.NewGuid(),
             departmentId: Guid.NewGuid(),
             serviceId: serviceId ?? Guid.NewGuid(),
             startDateTime: startDateTime ?? new DateTimeOffset(2026, 8, 20, 10, 0, 0, TimeSpan.Zero),
             endDateTime: endDateTime ?? new DateTimeOffset(2026, 8, 20, 12, 0, 0, TimeSpan.Zero),
-            notes: null,
+            notes: notes,
             createdAt: new DateTimeOffset(2026, 8, 18, 9, 0, 0, TimeSpan.Zero),
-            createdBy: Guid.NewGuid());
+            createdBy: createdBy ?? Guid.NewGuid());
 }
