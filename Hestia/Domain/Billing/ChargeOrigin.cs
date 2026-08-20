@@ -31,6 +31,9 @@ public sealed class ChargeOrigin : IEquatable<ChargeOrigin>
         return new ChargeOrigin(ChargeOriginType.RecurringService, recurringServiceId, null);
     }
 
+    public static ChargeOrigin ForRecurring()
+        => new ChargeOrigin(ChargeOriginType.RecurringService, null, null);
+
     public static ChargeOrigin ForReservation(Guid reservationId)
     {
         if (reservationId == Guid.Empty)

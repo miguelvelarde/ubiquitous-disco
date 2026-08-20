@@ -10,6 +10,9 @@ public partial class Program
         // Add services to the container.
 
         builder.Services.AddControllers();
+        builder.Services.AddSingleton<IConfiguration>(builder.Configuration);
+        builder.Services.AddTransient<Hestia.Application.Repositories.IChargeRepository, Hestia.Infrastructure.Postgres.ChargeRepository>();
+        builder.Services.AddTransient<Hestia.Application.Services.ChargeService>();
         // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
         builder.Services.AddOpenApi();
 

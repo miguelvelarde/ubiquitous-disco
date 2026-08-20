@@ -30,7 +30,27 @@ public sealed class Charge
     {
     }
 
-    private Charge(
+    internal static Charge Rehydrate(
+        Guid id,
+        Guid departmentId,
+        Guid serviceCatalogId,
+        decimal originalAmount,
+        decimal amount,
+        int? billingPeriod,
+        DateOnly dueDate,
+        ChargeOrigin origin,
+        ChargeStatus status,
+        DateTimeOffset createdAt,
+        Guid createdBy)
+        => new Charge(id, departmentId, serviceCatalogId, originalAmount, amount, billingPeriod, dueDate, origin, status, createdAt, createdBy);
+
+    internal void AttachPayment(Payment payment)
+    {
+        Payment = payment;
+        Status = ChargeStatus.Paid;
+    }
+
+    internal Charge(
         Guid id,
         Guid departmentId,
         Guid serviceCatalogId,
