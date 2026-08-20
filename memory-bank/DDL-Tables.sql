@@ -1,11 +1,16 @@
 -- ============================================================
 -- Condo Admin System
 -- PostgreSQL Database Schema
--- Version: 0.2
+-- Version: 0.4
+-- Simplified service model
 -- ============================================================
 
 CREATE SCHEMA IF NOT EXISTS cas;
 SET search_path = cas, public;
+
+-- Required for exclusion constraints with uuid + range operators.
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
 
 -- ============================================================
 -- 1. OWNERS
@@ -39,7 +44,7 @@ CREATE TABLE users (
 -- ============================================================
 -- 3. DEPARTMENTS
 -- ============================================================
-    
+
 CREATE TABLE departments (
     id              uuid PRIMARY KEY,
     owner_id        uuid NOT NULL,
@@ -92,112 +97,120 @@ CREATE TABLE department_owner_history (
         )
 );
 
-
 CREATE UNIQUE INDEX ux_department_owner_history_current
     ON department_owner_history (department_id)
     WHERE end_date IS NULL;
 
 
 -- ============================================================
--- 5. SERVICE CATALOG
+-- 5. SERVICES
+--
+-- A Service is the single catalog of chargeable/reservable
+-- concepts used by the application.
+--
+-- Types:
+--   Recurring     - may participate in monthly charge generation.
+--   Event         - event/reservation-related concept.
+--   Extraordinary - discretionary non-recurring charge.
+--   Adjustment    - accounting adjustment; charge amount may be
+--                   positive or negative.
+--
+-- is_reservable identifies services that can be used as a
+-- reservable resource in reservations.
 -- ============================================================
 
-CREATE TABLE service_catalog (
+CREATE TABLE services (
     id              uuid PRIMARY KEY,
     name            varchar(200) NOT NULL,
     description     varchar(1000),
     type            varchar(20) NOT NULL,
     default_amount  numeric(12,2) NOT NULL DEFAULT 0,
+    is_reservable   boolean NOT NULL DEFAULT false,
     is_active       boolean NOT NULL DEFAULT true,
     created_at      timestamptz NOT NULL DEFAULT now(),
 
-    CONSTRAINT ck_service_catalog_type
-        CHECK (type IN (
-            'Recurring',
-            'Event',
-            'Extraordinary'
-        )),
-
-    CONSTRAINT ck_service_catalog_default_amount
-        CHECK (default_amount >= 0)
-);
-
-
--- ============================================================
--- 6. RECURRING SERVICES
--- ============================================================
-
-CREATE TABLE recurring_services (
-    id                  uuid PRIMARY KEY,
-    department_id       uuid NOT NULL,
-    service_catalog_id  uuid NOT NULL,
-    start_date          date NOT NULL,
-    end_date            date,
-    due_date            date NOT NULL,
-    is_active           boolean NOT NULL DEFAULT true,
-    created_at          timestamptz NOT NULL DEFAULT now(),
-
-    CONSTRAINT fk_recurring_services_department
-        FOREIGN KEY (department_id)
-        REFERENCES departments (id),
-
-    CONSTRAINT fk_recurring_services_service_catalog
-        FOREIGN KEY (service_catalog_id)
-        REFERENCES service_catalog (id),
-
-    CONSTRAINT ck_recurring_services_dates
+    CONSTRAINT ck_services_type
         CHECK (
-            end_date IS NULL
-            OR end_date >= start_date
+            type IN (
+                'Recurring',
+                'Event',
+                'Extraordinary',
+                'Adjustment'
+            )
+        ),
+
+    -- Normal services cannot have a negative configured amount.
+    -- Adjustment services may define a negative default amount.
+    CONSTRAINT ck_services_default_amount
+        CHECK (
+            type = 'Adjustment'
+            OR default_amount >= 0
         )
 );
 
 
 -- ============================================================
--- 7. AMENITIES
+-- 6. DEPARTMENT SERVICES
+--
+-- Current catalog of services permanently associated with a
+-- Department.
+--
+-- No separate id and no audit/history fields are required.
+-- Removing the row means the Department no longer participates
+-- in future recurring generation for that Service.
 -- ============================================================
 
-CREATE TABLE amenities (
-    id              uuid PRIMARY KEY,
-    name            varchar(200) NOT NULL,
-    description     varchar(1000),
-    location        varchar(500),
-    status          varchar(20) NOT NULL,
-    created_at      timestamptz NOT NULL DEFAULT now(),
+CREATE TABLE department_services (
+    department_id   uuid NOT NULL,
+    service_id      uuid NOT NULL,
 
-    CONSTRAINT ck_amenities_status
-        CHECK (status IN (
-            'Active',
-            'Inactive'
-        ))
+    CONSTRAINT pk_department_services
+        PRIMARY KEY (department_id, service_id),
+
+    CONSTRAINT fk_department_services_department
+        FOREIGN KEY (department_id)
+        REFERENCES departments (id),
+
+    CONSTRAINT fk_department_services_service
+        FOREIGN KEY (service_id)
+        REFERENCES services (id)
 );
 
 
 -- ============================================================
--- 8. RESERVATIONS
+-- 7. RESERVATIONS
+--
+-- Reservation is independent from billing.
+-- service_id identifies the reservable resource/concept.
+--
+-- department_id is nullable to support administrative blocks
+-- such as maintenance that are not reservations by a Department.
+--
+-- Only Confirmed reservations participate in overlap blocking.
 -- ============================================================
 
 CREATE TABLE reservations (
     id                  uuid PRIMARY KEY,
-    amenity_id          uuid NOT NULL,
-    department_id       uuid NOT NULL,
-    service_catalog_id  uuid NOT NULL,
+    department_id       uuid,
+    service_id          uuid NOT NULL,
     start_date_time     timestamptz NOT NULL,
     end_date_time       timestamptz NOT NULL,
-    status              varchar(20) NOT NULL,
+    status              varchar(20) NOT NULL DEFAULT 'Confirmed',
+    notes               varchar(1000),
     created_at          timestamptz NOT NULL DEFAULT now(),
-
-    CONSTRAINT fk_reservations_amenity
-        FOREIGN KEY (amenity_id)
-        REFERENCES amenities (id),
+    created_by          uuid NOT NULL,
 
     CONSTRAINT fk_reservations_department
         FOREIGN KEY (department_id)
         REFERENCES departments (id),
 
-    CONSTRAINT fk_reservations_service_catalog
-        FOREIGN KEY (service_catalog_id)
-        REFERENCES service_catalog (id),
+    CONSTRAINT fk_reservations_service
+        FOREIGN KEY (service_id)
+        REFERENCES services (id),
+
+    CONSTRAINT fk_reservations_created_by
+        FOREIGN KEY (created_by)
+        REFERENCES users (id),
 
     CONSTRAINT ck_reservations_dates
         CHECK (
@@ -205,33 +218,49 @@ CREATE TABLE reservations (
         ),
 
     CONSTRAINT ck_reservations_status
-        CHECK (status IN (
-            'Pending',
-            'Confirmed',
-            'Cancelled',
-            'Completed'
-        ))
+        CHECK (
+            status IN (
+                'Confirmed',
+                'Cancelled'
+            )
+        )
 );
 
+-- Same reservable Service cannot have overlapping active
+-- reservations. [start, end) allows one reservation to begin
+-- exactly when another one ends.
+ALTER TABLE reservations
+    ADD CONSTRAINT ex_reservations_no_overlap
+    EXCLUDE USING gist (
+        service_id WITH =,
+        tstzrange(start_date_time, end_date_time, '[)') WITH &&
+    )
+    WHERE (status = 'Confirmed');
 
 
 -- ============================================================
--- 10. CHARGES
+-- 8. CHARGES
+--
+-- Charge references only Department + Service.
+-- It does not persist source_type and has no Reservation link.
+--
+-- BillingPeriod is mandatory for every Charge.
+-- Default is the current YYYYMM period.
+--
+-- Adjustment is identified through services.type = 'Adjustment'.
+-- Adjustment Charges may have negative amounts and are created
+-- as Paid by application/domain behavior without a Payment.
 -- ============================================================
 
 CREATE TABLE charges (
     id                   uuid PRIMARY KEY,
     department_id        uuid NOT NULL,
-    service_catalog_id   uuid NOT NULL,
-    
-    recurring_service_id uuid,
-
-    reservation_id       uuid,
-    source_type          varchar(20) NOT NULL,
+    service_id           uuid NOT NULL,
 
     -- YYYYMM
     -- Example: 202608 = August 2026
-    billing_period       integer,
+    billing_period       integer NOT NULL
+                         DEFAULT (to_char(CURRENT_DATE, 'YYYYMM')::integer),
 
     original_amount      numeric(12,2) NOT NULL,
     amount               numeric(12,2) NOT NULL,
@@ -245,106 +274,19 @@ CREATE TABLE charges (
         FOREIGN KEY (department_id)
         REFERENCES departments (id),
 
-    CONSTRAINT fk_charges_service_catalog
-        FOREIGN KEY (service_catalog_id)
-        REFERENCES service_catalog (id),
-
-    CONSTRAINT fk_charges_recurring_service
-        FOREIGN KEY (recurring_service_id)
-        REFERENCES recurring_services (id),
-
-    -- recurring_service_id removed: use recurring_services for generation only
-
-    CONSTRAINT fk_charges_reservation
-        FOREIGN KEY (reservation_id)
-        REFERENCES reservations (id),
+    CONSTRAINT fk_charges_service
+        FOREIGN KEY (service_id)
+        REFERENCES services (id),
 
     CONSTRAINT fk_charges_created_by
         FOREIGN KEY (created_by)
         REFERENCES users (id),
 
-    -- --------------------------------------------------------
-    -- Charge source
-    -- --------------------------------------------------------
-
-    CONSTRAINT ck_charges_source_type
-        CHECK (
-            source_type IN (
-                'Recurring',
-                'Reservation',
-                'Extraordinary',
-                'Adjustment'
-            )
-        ),
-
-    CONSTRAINT ck_charges_source
-        CHECK (
-            (
-                source_type = 'Recurring'
-                AND recurring_service_id IS NOT NULL
-                AND reservation_id IS NULL
-            )
-            OR
-            (
-                source_type = 'Reservation'
-                AND recurring_service_id IS NULL
-                AND reservation_id IS NOT NULL
-            )
-            OR
-            (
-                source_type = 'Extraordinary'
-                AND recurring_service_id IS NULL
-                AND reservation_id IS NULL
-            )
-            OR
-            (
-                source_type = 'Adjustment'
-                AND recurring_service_id IS NULL
-                AND reservation_id IS NULL
-            )
-        ),
-
-    -- --------------------------------------------------------
-    -- Billing period
-    --
-    -- YYYYMM
-    -- 202601 = January 2026
-    -- 202608 = August 2026
-    -- 202612 = December 2026
-    -- --------------------------------------------------------
-
     CONSTRAINT ck_charges_billing_period
         CHECK (
-            billing_period IS NULL
-            OR (
-                billing_period BETWEEN 190001 AND 999912
-                AND (billing_period % 100) BETWEEN 1 AND 12
-            )
+            billing_period BETWEEN 190001 AND 999912
+            AND (billing_period % 100) BETWEEN 1 AND 12
         ),
-
-    -- --------------------------------------------------------
-    -- Amounts
-    -- --------------------------------------------------------
-
-    CONSTRAINT ck_charges_amounts
-        CHECK (
-            (
-                source_type = 'Adjustment'
-                AND original_amount = 0
-                AND amount <> 0
-            )
-            OR
-            (
-                source_type <> 'Adjustment'
-                AND original_amount >= 0
-                AND amount >= 0
-                AND amount <= original_amount
-            )
-        ),
-
-    -- --------------------------------------------------------
-    -- Status
-    -- --------------------------------------------------------
 
     CONSTRAINT ck_charges_status
         CHECK (
@@ -356,17 +298,24 @@ CREATE TABLE charges (
             )
         ),
 
-    -- An adjustment is applied immediately and never receives a Payment.
-    CONSTRAINT ck_charges_adjustment_status
+    -- Zero-current-amount Charges are Waived.
+    -- Adjustment charges may be negative; cross-table validation
+    -- of negative amount vs services.type belongs to the
+    -- application/domain operation that creates the Charge.
+    CONSTRAINT ck_charges_zero_amount_waived
         CHECK (
-            source_type <> 'Adjustment'
-            OR status = 'Paid'
+            amount <> 0
+            OR status = 'Waived'
         )
 );
 
 
 -- ============================================================
--- 11. PAYMENTS
+-- 9. PAYMENTS
+--
+-- One Charge can have at most one Payment.
+-- Adjustment Charges that are created directly as Paid do not
+-- require a Payment row.
 -- ============================================================
 
 CREATE TABLE payments (
@@ -376,7 +325,7 @@ CREATE TABLE payments (
     amount          numeric(12,2) NOT NULL,
     payment_method  varchar(30) NOT NULL,
     reference       varchar(200) NOT NULL,
-    notes           varchar(1000),
+    notes           varchar(1000) NOT NULL DEFAULT 'Sin notas',
     created_at      timestamptz NOT NULL DEFAULT now(),
     created_by      uuid NOT NULL,
 
@@ -388,7 +337,6 @@ CREATE TABLE payments (
         FOREIGN KEY (created_by)
         REFERENCES users (id),
 
-    -- One Charge can have at most one Payment.
     CONSTRAINT uq_payments_charge
         UNIQUE (charge_id),
 
@@ -399,46 +347,44 @@ CREATE TABLE payments (
 
     CONSTRAINT ck_payments_method
         CHECK (
-            payment_method IN ('Cash','Card','Transfer','Other')
+            payment_method IN (
+                'Cash',
+                'Card',
+                'Transfer',
+                'Other'
+            )
         )
 );
 
 
 -- ============================================================
--- INDEXES
+-- 10. INDEXES
 -- ============================================================
 
 CREATE INDEX ix_departments_owner_id
     ON departments (owner_id);
 
-
 CREATE INDEX ix_department_owner_history_owner_id
     ON department_owner_history (owner_id);
 
-
-CREATE INDEX ix_recurring_services_department_id
-    ON recurring_services (department_id);
-
-
-CREATE INDEX ix_recurring_services_service_catalog_id
-    ON recurring_services (service_catalog_id);
-
-
-CREATE INDEX ix_reservations_amenity_period
-    ON reservations (
-        amenity_id,
-        start_date_time,
-        end_date_time
-    );
-
+CREATE INDEX ix_department_services_service_id
+    ON department_services (service_id);
 
 CREATE INDEX ix_reservations_department_id
     ON reservations (department_id);
 
+CREATE INDEX ix_reservations_service_period
+    ON reservations (
+        service_id,
+        start_date_time,
+        end_date_time
+    );
 
 CREATE INDEX ix_charges_department_id
     ON charges (department_id);
 
+CREATE INDEX ix_charges_service_id
+    ON charges (service_id);
 
 CREATE INDEX ix_charges_status_due_date
     ON charges (
@@ -446,69 +392,60 @@ CREATE INDEX ix_charges_status_due_date
         due_date
     );
 
-
 CREATE INDEX ix_charges_billing_period
     ON charges (billing_period);
 
 
 -- ============================================================
--- IDEMPOTENCY
+-- 11. RECURRING CHARGE IDEMPOTENCY
 --
--- A recurring service can generate at most one Charge
--- for a given BillingPeriod.
+-- At most one recurring Charge may exist for a Department,
+-- Service and BillingPeriod.
 --
--- Example:
--- RecurringService = X
--- BillingPeriod    = 202608
+-- Because charges no longer persist source_type, uniqueness is
+-- expressed over the actual recurring identity:
 --
--- Only one recurring Charge is allowed.
+--   department_id + service_id + billing_period
+--
+-- The application generates recurring charges only from
+-- department_services joined to services.type = 'Recurring'.
+--
+-- NOTE:
+-- This unique index also prevents two non-recurring Charges for
+-- the same Department + Service + BillingPeriod. If multiple
+-- same-service event/extraordinary charges within one month must
+-- be supported, this rule should instead be enforced by the
+-- recurring-generation command/stored procedure.
 -- ============================================================
 
-CREATE UNIQUE INDEX ux_charges_recurring_period
-        ON charges (recurring_service_id, billing_period)
-        WHERE source_type = 'Recurring'
-            AND recurring_service_id IS NOT NULL
-            AND billing_period IS NOT NULL;
+-- Intentionally NOT created yet:
+--
+-- CREATE UNIQUE INDEX ux_charges_department_service_period
+--     ON charges (department_id, service_id, billing_period);
+--
+-- See note above. Idempotency for recurring generation should be
+-- enforced in the recurring-charge generation operation unless a
+-- separate recurring identity is later introduced.
 
 
 -- ============================================================
--- TRIGGERS
--- Prevent changes to charges.original_amount after insert
+-- 12. TRIGGERS
+-- Prevent changes to charges.original_amount after insert.
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION prevent_original_amount_update()
 RETURNS trigger AS $$
 BEGIN
-    IF TG_OP = 'UPDATE' AND NEW.original_amount <> OLD.original_amount THEN
+    IF TG_OP = 'UPDATE'
+       AND NEW.original_amount <> OLD.original_amount THEN
         RAISE EXCEPTION 'original_amount is immutable';
     END IF;
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_charges_prevent_original_amount_update
 BEFORE UPDATE ON charges
-FOR EACH ROW EXECUTE FUNCTION prevent_original_amount_update();
-
-
--- An Adjustment Charge records an administrative accounting effect directly.
--- It must not receive a cash Payment.
-CREATE OR REPLACE FUNCTION prevent_payment_for_adjustment_charge()
-RETURNS trigger AS $$
-BEGIN
-    IF EXISTS (
-        SELECT 1
-          FROM charges
-         WHERE id = NEW.charge_id
-           AND source_type = 'Adjustment'
-    ) THEN
-        RAISE EXCEPTION 'Adjustment charges cannot receive payments';
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_payments_prevent_adjustment_charge_payment
-BEFORE INSERT OR UPDATE OF charge_id ON payments
-FOR EACH ROW EXECUTE FUNCTION prevent_payment_for_adjustment_charge();
+FOR EACH ROW
+EXECUTE FUNCTION prevent_original_amount_update();

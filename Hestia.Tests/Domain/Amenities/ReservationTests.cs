@@ -9,9 +9,8 @@ public sealed class ReservationTests
     public void Constructor_WhenStateIsValid_CreatesConfirmedReservation()
     {
         var id = Guid.NewGuid();
-        var amenityId = Guid.NewGuid();
         var departmentId = Guid.NewGuid();
-        var serviceCatalogId = Guid.NewGuid();
+        var serviceId = Guid.NewGuid();
         var startDateTime = new DateTimeOffset(2026, 8, 20, 10, 0, 0, TimeSpan.Zero);
         var endDateTime = new DateTimeOffset(2026, 8, 20, 12, 0, 0, TimeSpan.Zero);
         var createdAt = new DateTimeOffset(2026, 8, 18, 9, 0, 0, TimeSpan.Zero);
@@ -19,18 +18,17 @@ public sealed class ReservationTests
 
         var reservation = new Reservation(
             id,
-            amenityId,
             departmentId,
-            serviceCatalogId,
+            serviceId,
             startDateTime,
             endDateTime,
+            null,
             createdAt,
             createdBy);
 
         Assert.Equal(id, reservation.Id);
-        Assert.Equal(amenityId, reservation.AmenityId);
         Assert.Equal(departmentId, reservation.DepartmentId);
-        Assert.Equal(serviceCatalogId, reservation.ServiceCatalogId);
+        Assert.Equal(serviceId, reservation.ServiceId);
         Assert.Equal(startDateTime, reservation.StartDateTime);
         Assert.Equal(endDateTime, reservation.EndDateTime);
         Assert.Equal(ReservationStatus.Confirmed, reservation.Status);
@@ -56,9 +54,9 @@ public sealed class ReservationTests
     }
 
     [Fact]
-    public void Constructor_WhenAmenityIdIsEmpty_ThrowsArgumentException()
+    public void Constructor_WhenServiceIdIsEmpty_ThrowsArgumentException()
     {
-        Assert.Throws<ArgumentException>(() => CreateReservation(amenityId: Guid.Empty));
+        Assert.Throws<ArgumentException>(() => CreateReservation(serviceId: Guid.Empty));
     }
 
     [Fact]
@@ -85,14 +83,14 @@ public sealed class ReservationTests
     private static Reservation CreateReservation(
         DateTimeOffset? startDateTime = null,
         DateTimeOffset? endDateTime = null,
-        Guid? amenityId = null) =>
+        Guid? serviceId = null) =>
         new(
             id: Guid.NewGuid(),
-            amenityId: amenityId ?? Guid.NewGuid(),
             departmentId: Guid.NewGuid(),
-            serviceCatalogId: Guid.NewGuid(),
+            serviceId: serviceId ?? Guid.NewGuid(),
             startDateTime: startDateTime ?? new DateTimeOffset(2026, 8, 20, 10, 0, 0, TimeSpan.Zero),
             endDateTime: endDateTime ?? new DateTimeOffset(2026, 8, 20, 12, 0, 0, TimeSpan.Zero),
+            notes: null,
             createdAt: new DateTimeOffset(2026, 8, 18, 9, 0, 0, TimeSpan.Zero),
             createdBy: Guid.NewGuid());
 }

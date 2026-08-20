@@ -7,11 +7,11 @@ public sealed class Reservation
 {
     public Reservation(
         Guid id,
-        Guid amenityId,
-        Guid departmentId,
-        Guid serviceCatalogId,
+        Guid? departmentId,
+        Guid serviceId,
         DateTimeOffset startDateTime,
         DateTimeOffset endDateTime,
+        string? notes,
         DateTimeOffset createdAt,
         Guid createdBy)
     {
@@ -20,19 +20,9 @@ public sealed class Reservation
             throw new ArgumentException("A reservation requires an identifier.", nameof(id));
         }
 
-        if (amenityId == Guid.Empty)
+        if (serviceId == Guid.Empty)
         {
-            throw new ArgumentException("A reservation requires an amenity identifier.", nameof(amenityId));
-        }
-
-        if (departmentId == Guid.Empty)
-        {
-            throw new ArgumentException("A reservation requires a department identifier.", nameof(departmentId));
-        }
-
-        if (serviceCatalogId == Guid.Empty)
-        {
-            throw new ArgumentException("A reservation requires a service catalog identifier.", nameof(serviceCatalogId));
+            throw new ArgumentException("A reservation requires a service identifier.", nameof(serviceId));
         }
 
         if (endDateTime <= startDateTime)
@@ -46,29 +36,29 @@ public sealed class Reservation
         }
 
         Id = id;
-        AmenityId = amenityId;
         DepartmentId = departmentId;
-        ServiceCatalogId = serviceCatalogId;
+        ServiceId = serviceId;
         StartDateTime = startDateTime;
         EndDateTime = endDateTime;
         Status = ReservationStatus.Confirmed;
+        Notes = string.IsNullOrWhiteSpace(notes) ? "Sin notas" : notes;
         CreatedAt = createdAt;
         CreatedBy = createdBy;
     }
 
     public Guid Id { get; }
 
-    public Guid AmenityId { get; }
+    public Guid? DepartmentId { get; }
 
-    public Guid DepartmentId { get; }
-
-    public Guid ServiceCatalogId { get; }
+    public Guid ServiceId { get; }
 
     public DateTimeOffset StartDateTime { get; }
 
     public DateTimeOffset EndDateTime { get; }
 
     public ReservationStatus Status { get; private set; }
+
+    public string Notes { get; }
 
     public DateTimeOffset CreatedAt { get; }
 

@@ -8,22 +8,22 @@ public sealed class Charge
     public Charge(
         Guid id,
         Guid departmentId,
-        Guid serviceCatalogId,
+        Guid serviceId,
         decimal amount,
-        int? billingPeriod,
+        int billingPeriod,
         DateOnly dueDate,
-        ChargeOrigin origin,
+        ServiceType serviceType,
         DateTimeOffset createdAt,
         Guid createdBy)
         : this(
             id,
             departmentId,
-            serviceCatalogId,
+            serviceId,
             amount,
             amount,
             billingPeriod,
             dueDate,
-            origin,
+            serviceType,
             amount == 0 ? ChargeStatus.Waived : ChargeStatus.Pending,
             createdAt,
             createdBy)
@@ -33,16 +33,16 @@ public sealed class Charge
     internal static Charge Rehydrate(
         Guid id,
         Guid departmentId,
-        Guid serviceCatalogId,
+        Guid serviceId,
         decimal originalAmount,
         decimal amount,
-        int? billingPeriod,
+        int billingPeriod,
         DateOnly dueDate,
-        ChargeOrigin origin,
+        ServiceType serviceType,
         ChargeStatus status,
         DateTimeOffset createdAt,
         Guid createdBy)
-        => new Charge(id, departmentId, serviceCatalogId, originalAmount, amount, billingPeriod, dueDate, origin, status, createdAt, createdBy);
+        => new Charge(id, departmentId, serviceId, originalAmount, amount, billingPeriod, dueDate, serviceType, status, createdAt, createdBy);
 
     internal void AttachPayment(Payment payment)
     {
@@ -53,12 +53,12 @@ public sealed class Charge
     internal Charge(
         Guid id,
         Guid departmentId,
-        Guid serviceCatalogId,
+        Guid serviceId,
         decimal originalAmount,
         decimal amount,
-        int? billingPeriod,
+        int billingPeriod,
         DateOnly dueDate,
-        ChargeOrigin origin,
+        ServiceType serviceType,
         ChargeStatus status,
         DateTimeOffset createdAt,
         Guid createdBy)
@@ -73,24 +73,19 @@ public sealed class Charge
             throw new ArgumentException("A charge requires a department identifier.", nameof(departmentId));
         }
 
-        if (serviceCatalogId == Guid.Empty)
+        if (serviceId == Guid.Empty)
         {
-            throw new ArgumentException("A charge requires a service catalog identifier.", nameof(serviceCatalogId));
+            throw new ArgumentException("A charge requires a service identifier.", nameof(serviceId));
         }
 
-        if (billingPeriod.HasValue)
-        {
-            BillingPeriodValidator.EnsureValid(billingPeriod.Value, nameof(billingPeriod));
-        }
-
-        ArgumentNullException.ThrowIfNull(origin);
+        BillingPeriodValidator.EnsureValid(billingPeriod, nameof(billingPeriod));
 
         if (createdBy == Guid.Empty)
         {
             throw new ArgumentException("A charge requires its creator identifier.", nameof(createdBy));
         }
 
-        if (origin.Type == ChargeOriginType.Adjustment)
+        if (serviceType == ServiceType.Adjustment)
         {
             if (originalAmount != 0)
             {
@@ -114,12 +109,12 @@ public sealed class Charge
 
         Id = id;
         DepartmentId = departmentId;
-        ServiceCatalogId = serviceCatalogId;
+        ServiceId = serviceId;
         OriginalAmount = originalAmount;
         Amount = amount;
         BillingPeriod = billingPeriod;
         DueDate = dueDate;
-        Origin = origin;
+        ServiceType = serviceType;
         Status = status;
         CreatedAt = createdAt;
         CreatedBy = createdBy;
@@ -129,17 +124,17 @@ public sealed class Charge
 
     public Guid DepartmentId { get; }
 
-    public Guid ServiceCatalogId { get; }
+    public Guid ServiceId { get; }
 
     public decimal OriginalAmount { get; }
 
     public decimal Amount { get; private set; }
 
-    public int? BillingPeriod { get; }
+    public int BillingPeriod { get; }
 
     public DateOnly DueDate { get; }
 
-    public ChargeOrigin Origin { get; }
+    public ServiceType ServiceType { get; }
 
     public ChargeStatus Status { get; private set; }
 
@@ -152,20 +147,21 @@ public sealed class Charge
     public static Charge CreateAdjustment(
         Guid id,
         Guid departmentId,
-        Guid serviceCatalogId,
+        Guid serviceId,
         decimal amount,
         DateOnly dueDate,
+        int billingPeriod,
         DateTimeOffset createdAt,
         Guid createdBy) =>
         new(
             id,
             departmentId,
-            serviceCatalogId,
+            serviceId,
             originalAmount: 0,
             amount: amount,
-            billingPeriod: null,
+            billingPeriod: billingPeriod,
             dueDate: dueDate,
-            origin: ChargeOrigin.Adjustment(),
+            serviceType: ServiceType.Adjustment,
             status: ChargeStatus.Paid,
             createdAt: createdAt,
             createdBy: createdBy);

@@ -191,15 +191,15 @@ public sealed class ChargeTests
         Assert.Same(payment, charge.Payment);
     }
 
-    private static Charge CreateCharge(decimal amount = 250.00m, int? billingPeriod = 202608) =>
+    private static Charge CreateCharge(decimal amount = 250.00m, int billingPeriod = 202608) =>
         new(
             id: Guid.NewGuid(),
             departmentId: Guid.NewGuid(),
-            serviceCatalogId: Guid.NewGuid(),
+            serviceId: Guid.NewGuid(),
             amount: amount,
             billingPeriod: billingPeriod,
             dueDate: new DateOnly(2026, 8, 10),
-            origin: ChargeOrigin.Extraordinary(),
+            serviceType: ServiceType.Extraordinary,
             createdAt: new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.Zero),
             createdBy: Guid.NewGuid());
 

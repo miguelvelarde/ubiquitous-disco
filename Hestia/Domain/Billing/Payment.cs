@@ -12,7 +12,7 @@ public sealed class Payment
         decimal amount,
         PaymentMethod paymentMethod,
         string reference,
-        string notes,
+        string? notes,
         DateTimeOffset createdAt,
         Guid createdBy)
     {
@@ -41,11 +41,6 @@ public sealed class Payment
             throw new ArgumentException("A payment reference is required.", nameof(reference));
         }
 
-        if (string.IsNullOrWhiteSpace(notes))
-        {
-            throw new ArgumentException("Payment notes are required.", nameof(notes));
-        }
-
         if (createdBy == Guid.Empty)
         {
             throw new ArgumentException("A payment requires its creator identifier.", nameof(createdBy));
@@ -57,7 +52,7 @@ public sealed class Payment
         Amount = amount;
         PaymentMethod = paymentMethod;
         Reference = reference;
-        Notes = notes;
+        Notes = string.IsNullOrWhiteSpace(notes) ? "Sin notas" : notes;
         CreatedAt = createdAt;
         CreatedBy = createdBy;
     }

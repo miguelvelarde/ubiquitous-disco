@@ -22,10 +22,10 @@ public sealed class ChargeRepository : IChargeRepository
 
     public async Task AddAsync(Charge charge, CancellationToken ct = default)
     {
-        const string sql = @"INSERT INTO charges (
-            id, department_id, service_catalog_id, reservation_id, source_type, billing_period,
+        const string sql = @"INSERT INTO cas.charges (
+            id, department_id, service_id, billing_period,
             original_amount, amount, due_date, status, created_at, created_by)
-            VALUES (@Id, @DepartmentId, @ServiceCatalogId, @ReservationId, @SourceType, @BillingPeriod,
+            VALUES (@Id, @DepartmentId, @ServiceId, @BillingPeriod,
             @OriginalAmount, @Amount, @DueDate, @Status, @CreatedAt, @CreatedBy)";
 
         using var db = CreateConnection();
@@ -33,9 +33,7 @@ public sealed class ChargeRepository : IChargeRepository
         {
             Id = charge.Id,
             DepartmentId = charge.DepartmentId,
-            ServiceCatalogId = charge.ServiceCatalogId,
-            ReservationId = charge.Origin.Type == ChargeOriginType.Reservation ? charge.Origin.ReservationId : null,
-            SourceType = charge.Origin.Type.ToString(),
+            ServiceId = charge.ServiceId,
             BillingPeriod = charge.BillingPeriod,
             OriginalAmount = charge.OriginalAmount,
             Amount = charge.Amount,
@@ -48,23 +46,16 @@ public sealed class ChargeRepository : IChargeRepository
 
     public async Task<Charge?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
-        const string sql = @"SELECT c.*, p.id as payment_id, p.payment_date, p.amount as payment_amount,
+        const string sql = @"SELECT c.*, s.type as service_type, p.id as payment_id, p.payment_date, p.amount as payment_amount,
             p.payment_method, p.reference, p.notes, p.created_at as payment_created_at, p.created_by as payment_created_by
-            FROM charges c
-            LEFT JOIN payments p ON p.charge_id = c.id
+            FROM cas.charges c
+            JOIN cas.services s ON s.id = c.service_id
+            LEFT JOIN cas.payments p ON p.charge_id = c.id
             WHERE c.id = @Id";
 
         using var db = CreateConnection();
         var row = await db.QueryFirstOrDefaultAsync<dynamic>(new CommandDefinition(sql, new { Id = id }, cancellationToken: ct));
         if (row is null) return null;
-
-        ChargeOrigin origin = row.source_type switch
-        {
-            "Reservation" => ChargeOrigin.ForReservation(row.reservation_id is null ? Guid.Empty : (Guid)row.reservation_id),
-            "Adjustment" => ChargeOrigin.Adjustment(),
-            "Recurring" => ChargeOrigin.ForRecurring(),
-            _ => ChargeOrigin.Extraordinary()
-        };
 
         var createdAt = (DateTimeOffset)row.created_at;
         var dueDate = DateOnly.FromDateTime((DateTime)row.due_date);
@@ -72,12 +63,12 @@ public sealed class ChargeRepository : IChargeRepository
         var charge = Charge.Rehydrate(
             (Guid)row.id,
             (Guid)row.department_id,
-            (Guid)row.service_catalog_id,
+            (Guid)row.service_id,
             (decimal)row.original_amount,
             (decimal)row.amount,
-            row.billing_period is null ? null : (int?)row.billing_period,
+            (int)row.billing_period,
             dueDate,
-            origin,
+            Enum.Parse<ServiceType>((string)row.service_type),
             Enum.Parse<ChargeStatus>((string)row.status),
             createdAt,
             (Guid)row.created_by);
@@ -103,14 +94,14 @@ public sealed class ChargeRepository : IChargeRepository
 
     public async Task UpdateAsync(Charge charge, CancellationToken ct = default)
     {
-        const string sql = @"UPDATE charges SET amount = @Amount, status = @Status WHERE id = @Id";
+        const string sql = @"UPDATE cas.charges SET amount = @Amount, status = @Status WHERE id = @Id";
 
         using var db = CreateConnection();
         await db.ExecuteAsync(new CommandDefinition(sql, new { Amount = charge.Amount, Status = charge.Status.ToString(), Id = charge.Id }, cancellationToken: ct));
 
         if (charge.Payment is not null)
         {
-            const string ins = @"INSERT INTO payments (id, charge_id, payment_date, amount, payment_method, reference, notes, created_at, created_by)
+            const string ins = @"INSERT INTO cas.payments (id, charge_id, payment_date, amount, payment_method, reference, notes, created_at, created_by)
                 VALUES (@Id, @ChargeId, @PaymentDate, @Amount, @PaymentMethod, @Reference, @Notes, @CreatedAt, @CreatedBy)
                 ON CONFLICT (charge_id) DO NOTHING";
 
